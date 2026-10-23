@@ -22,3 +22,8 @@ evidence = [
 
 [references]
 links = ["https://docs.kernel.org/admin-guide/hw-vuln/l1tf.html"]
+
+[propose]
+dell       = ["Processor Settings → Logical Processor = Disabled"]
+supermicro = ["Advanced → CPU Configuration → Hyper-Threading (ALL) = Disable"]
+generic    = ["Disable SMT / Hyper-Threading in the firmware setup, or boot with the nosmt kernel parameter"]

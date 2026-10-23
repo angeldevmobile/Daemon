@@ -33,8 +33,8 @@ fn irq_on_hot_core() {
     let f = finding(&findings, "irq-on-hot-core");
     assert_eq!(
         f.message,
-        "IRQs eth0-rx-0, eth0-rx-1, eth0-rx-2 +1 more are handled on core 3 at 8,300/s,\n\
-         where hot thread 4823 (gw-io) runs"
+        "IRQs for eth0 (rx-0..3) are handled on core 3,\n\
+         where hot thread 4823 (gw-io) runs · 8,300 IRQs/s"
     );
     assert_eq!(f.evidence.len(), 4);
     assert!(f.evidence[0].excerpt.ends_with("affinity 3"));

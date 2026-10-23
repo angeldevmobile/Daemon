@@ -578,7 +578,7 @@ are added in v0.3.
 
 Each version is useful on its own.
 
-- [ ] **v0.1 — Audit.** `hpcctl audit` and `explain`, rule format, conflict rules, firmware
+- [x] **v0.1 — Audit.** `hpcctl audit` and `explain`, rule format, conflict rules, firmware
       rules that need no root, `capture` and offline `audit --snapshot`, fixture tests.
       Read-only, no daemon.
 - [ ] **v0.2 — Measure.** eBPF run-queue latency, stability check, confidence intervals,

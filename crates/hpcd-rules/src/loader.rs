@@ -2,7 +2,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::registry;
-use crate::rule::Rule;
+use crate::rule::{Category, Rule};
 
 #[derive(Debug, thiserror::Error)]
 pub enum LoadError {
@@ -106,6 +106,12 @@ fn validate(path: &Path, rule: &Rule) -> Result<(), LoadError> {
     }
     if rule.references.links.is_empty() {
         return Err(invalid(path, "at least one reference is required".into()));
+    }
+    if rule.category == Category::Firmware && !rule.propose.contains_key("generic") {
+        return Err(invalid(
+            path,
+            "firmware rules need a [propose] generic entry".into(),
+        ));
     }
     Ok(())
 }

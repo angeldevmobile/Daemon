@@ -1,0 +1,25 @@
+id       = "sub-numa-clustering"
+title    = "Sub-NUMA clustering splits each socket into several NUMA nodes"
+category = "firmware"
+severity = "info"
+platform = "linux"
+goal     = ["latency"]
+order    = 100
+
+[detect]
+check = "sub_numa_clustering"
+
+[explain]
+summary = """
+Sub-NUMA Clustering (Intel) and NPS (AMD) split each socket into smaller NUMA nodes. NUMA-aware
+software can gain from the shorter local distance, but a service that is not pinned to one node
+will see more remote memory accesses and less predictable latency.
+"""
+evidence = ["/sys/devices/system/node", "/sys/devices/system/cpu/cpu*/topology/physical_package_id"]
+
+[references]
+links = ["https://docs.kernel.org/mm/numa.html"]
+
+[propose]
+dell    = ["Processor Settings → Sub NUMA Cluster = Disabled"]
+generic = ["Disable Sub-NUMA Clustering (Intel) or set NPS1 (AMD) in the firmware setup"]

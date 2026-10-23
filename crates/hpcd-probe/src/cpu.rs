@@ -18,6 +18,7 @@ pub struct CpuInfo {
     pub driver: Option<String>,
     pub idle_states: Vec<IdleState>,
     pub siblings: Option<CpuSet>,
+    pub package: Option<u32>,
 }
 
 pub fn read_cpus(root: &SysRoot) -> BTreeMap<u32, CpuInfo> {
@@ -82,6 +83,7 @@ fn read_cpu(root: &SysRoot, cpu: u32) -> CpuInfo {
         driver: value("cpufreq/scaling_driver"),
         idle_states,
         siblings: value("topology/thread_siblings_list").and_then(|s| CpuSet::parse(&s)),
+        package: value("topology/physical_package_id").and_then(|s| s.parse().ok()),
     }
 }
 

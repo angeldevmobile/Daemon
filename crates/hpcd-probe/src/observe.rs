@@ -5,6 +5,7 @@ use hpcd_core::Target;
 
 use crate::cpu::{self, CpuInfo};
 use crate::interrupts::{self, IrqLine};
+use crate::machine::{self, Machine};
 use crate::numa;
 use crate::tasks::{self, Process, TaskStat};
 use crate::{CpuSet, ProbeError, Source, SysRoot};
@@ -56,6 +57,7 @@ pub struct Observation {
     pub cpu_busy: BTreeMap<u32, f64>,
     pub numa_nodes: BTreeMap<u32, CpuSet>,
     pub memory_pages: BTreeMap<u32, u64>,
+    pub machine: Machine,
 }
 
 impl Observation {
@@ -65,6 +67,13 @@ impl Observation {
 
     pub fn hot_cores(&self) -> CpuSet {
         self.hot_threads().map(|t| t.core).collect()
+    }
+
+    pub fn packages(&self) -> usize {
+        let mut ids: Vec<u32> = self.cpus.values().filter_map(|c| c.package).collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.len()
     }
 
     pub fn node_of(&self, cpu: u32) -> Option<u32> {
@@ -187,6 +196,7 @@ pub fn observe(source: &Source, target: &Target) -> Result<Observation, ProbeErr
             })
             .collect(),
         numa_nodes: numa::read_nodes(&second),
+        machine: machine::read_machine(&second),
         processes: tasks::read_processes(&second),
         tuned_profile: second
             .read("/etc/tuned/active_profile")

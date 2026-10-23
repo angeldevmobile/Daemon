@@ -4,7 +4,7 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 
 ## Estado actual
 
-**Versión en curso:** v0.1 — Audit
+**Versión en curso:** v0.2 — Measure (v0.1 — Audit ✅ terminada y probada en WSL)
 
 | Pieza | Estado |
 |---|---|
@@ -14,11 +14,11 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | `hpcctl explain` (pantalla 02) | ✅ sin evidencia en vivo |
 | `hpcctl audit` (pantalla 01) | ✅ las 8 filas |
 | `hpcctl audit --snapshot` | ✅ |
-| `hpcctl audit --firmware` (pantalla 12) | 🟡 con `smt-enabled`; faltan `sub-numa-clustering` y las que necesitan root |
+| `hpcctl audit --firmware` (pantalla 12) | ✅ máquina, `smt-enabled`, `sub-numa-clustering`, propuesta por fabricante (las que necesitan root quedan para v0.2) |
 | `hpcctl capture` (directorio, `--show`) | ✅ |
 | CLI instalable (`cargo install`), reglas dentro del binario | ✅ |
 | Set inicial completo: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing` | ✅ con fixture |
-| Firmware: `smt-enabled` | ✅ con fixture |
+| Firmware sin root: `smt-enabled`, `sub-numa-clustering` | ✅ |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
 | Reglas de conflictos restantes (`systemd-cpuaffinity`, `cpuset-restricted`, `k8s-cpu-manager`) | ❌ |
 
@@ -41,6 +41,27 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-22 · v0.1 probada en WSL
+
+- `audit`, `audit --firmware`, `explain`, `capture --show` y el audit de la captura de prueba
+  funcionan en WSL. Sin DMI (VM), el encabezado de firmware muestra solo la CPU.
+- El mensaje de `irq-on-hot-core` se partía en terminales normales. Ahora agrupa las colas de un
+  dispositivo como el diseño (`eth0 (rx-0..3)`) y pone la tasa en la segunda línea.
+- v0.1 marcada como hecha en el roadmap del README.
+
+### 2026-10-22 · Cierre de v0.1: `sub-numa-clustering` y propuesta de firmware
+
+- `hpcd-probe` lee la máquina sin root: fabricante, modelo y BIOS (`/sys/class/dmi/id`), modelo
+  de CPU (`/proc/cpuinfo`) y el socket de cada CPU (`physical_package_id`).
+- Check `sub_numa_clustering`: más nodos NUMA que sockets. Regla `sub-numa-clustering` (firmware,
+  INFO).
+- Las reglas de firmware llevan `[propose]` con pasos por fabricante (`dell`, `hpe`, `lenovo`,
+  `supermicro`) y un `generic` obligatorio, validado al cargar.
+- `audit --firmware` muestra la máquina en el encabezado y, al final, la propuesta para su
+  fabricante, como la pantalla 12. `explain` muestra la sección PROPOSE.
+- Solo hay rutas de menú de Dell (y de Supermicro para SMT). Las demás marcas usan el paso
+  genérico hasta que alguien con esos equipos las aporte.
 
 ### 2026-10-22 · `thread-migration`, `smt-sibling-busy` y `remote-numa-memory`
 
@@ -180,8 +201,8 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. Regla de firmware `sub-numa-clustering`.
-2. Pie de `audit --firmware` con la propuesta por fabricante (pantalla 12) en lugar de "0 fixable at runtime".
+1. v0.2: medición de latencia con eBPF (run-queue latency), estabilidad, intervalos de confianza.
+2. Probar en una máquina física cuando haya una a mano.
 3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
 4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
 5. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.

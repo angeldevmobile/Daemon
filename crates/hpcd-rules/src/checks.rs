@@ -55,16 +55,13 @@ pub fn irq_affinity_overlaps(rule: &Rule, obs: &Observation) -> Result<Option<Hi
     };
 
     let names: Vec<&str> = irqs.iter().map(|i| i.name.as_str()).collect();
-    let shown = match names.len() {
-        0..=3 => names.join(", "),
-        n => format!("{} +{} more", names[..3].join(", "), n - 3),
-    };
     let thread = threads[0];
     let mut message = format!(
-        "IRQs {shown} are handled on core {core} at {}/s,\nwhere hot thread {} ({}) runs",
-        thousands(*total),
+        "IRQs for {} are handled on core {core},\nwhere hot thread {} ({}) runs · {} IRQs/s",
+        irq_names(&names),
         thread.tid,
-        thread.comm
+        thread.comm,
+        thousands(*total)
     );
     if hits.len() > 1 {
         message += &format!(" · {} more cores affected", hits.len() - 1);
@@ -468,6 +465,30 @@ pub fn numa_remote_memory(rule: &Rule, obs: &Observation) -> Result<Option<Hit>,
     Ok(None)
 }
 
+pub fn sub_numa_clustering(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let NoParams {} = params(&rule.detect.params)?;
+    let nodes = obs.numa_nodes.len();
+    let packages = obs.packages();
+    if packages == 0 || nodes <= packages {
+        return Ok(None);
+    }
+    Ok(Some(Hit {
+        message: format!(
+            "On · {nodes} NUMA nodes on {}",
+            if packages == 1 {
+                "1 socket".to_string()
+            } else {
+                format!("{packages} sockets")
+            }
+        ),
+        evidence: vec![Evidence {
+            source: "/sys/devices/system/node, /sys/devices/system/cpu/cpu*/topology/physical_package_id"
+                .into(),
+            excerpt: format!("{nodes} nodes · {packages} packages"),
+        }],
+    }))
+}
+
 fn hot_threads_target(target: &str) -> Result<(), String> {
     if target == "hot_threads" {
         Ok(())
@@ -481,6 +502,33 @@ fn hot_threads_target(target: &str) -> Result<(), String> {
 fn cores_phrase(cores: &CpuSet) -> String {
     let single = cores.iter().count() == 1;
     format!("{} {cores}", if single { "core" } else { "cores" })
+}
+
+fn irq_names(names: &[&str]) -> String {
+    fn split(n: &str) -> Option<(&str, &str, u32)> {
+        let (device, queue) = n.split_once('-')?;
+        let (kind, index) = queue.rsplit_once('-')?;
+        Some((device, kind, index.parse().ok()?))
+    }
+    let parts: Option<Vec<_>> = names.iter().map(|n| split(n)).collect();
+    if let Some(parts) = parts.filter(|p| p.len() > 1) {
+        let (device, kind, _) = parts[0];
+        let mut indexes: Vec<u32> = parts.iter().map(|p| p.2).collect();
+        indexes.sort_unstable();
+        let same = parts.iter().all(|p| p.0 == device && p.1 == kind);
+        let contiguous = indexes.windows(2).all(|w| w[1] == w[0] + 1);
+        if same && contiguous {
+            return format!(
+                "{device} ({kind}-{}..{})",
+                indexes[0],
+                indexes[indexes.len() - 1]
+            );
+        }
+    }
+    match names.len() {
+        0..=3 => names.join(", "),
+        n => format!("{} +{} more", names[..3].join(", "), n - 3),
+    }
 }
 
 fn thousands(n: f64) -> String {
@@ -530,7 +578,33 @@ mod tests {
             cpu_busy: Default::default(),
             numa_nodes: Default::default(),
             memory_pages: Default::default(),
+            machine: Default::default(),
         }
+    }
+
+    #[test]
+    fn sub_numa_clustering_needs_more_nodes_than_sockets() {
+        let r = rule("sub_numa_clustering", "");
+        let mut obs = host(&[], None);
+        for (cpu, package) in [(0, 0), (1, 0), (2, 1), (3, 1)] {
+            obs.cpus.insert(
+                cpu,
+                hpcd_probe::CpuInfo {
+                    package: Some(package),
+                    ..Default::default()
+                },
+            );
+        }
+        for node in 0..2 {
+            obs.numa_nodes.insert(node, CpuSet::default());
+        }
+        assert!(sub_numa_clustering(&r, &obs).unwrap().is_none());
+
+        for node in 2..4 {
+            obs.numa_nodes.insert(node, CpuSet::default());
+        }
+        let hit = sub_numa_clustering(&r, &obs).unwrap().unwrap();
+        assert_eq!(hit.message, "On · 4 NUMA nodes on 2 sockets");
     }
 
     #[test]
@@ -563,6 +637,17 @@ mod tests {
             .unwrap()
             .unwrap();
         assert_eq!(hit.message, "irqbalance is running");
+    }
+
+    #[test]
+    fn groups_irq_queues_of_one_device() {
+        let rx = ["eth0-rx-0", "eth0-rx-1", "eth0-rx-2", "eth0-rx-3"];
+        assert_eq!(irq_names(&rx), "eth0 (rx-0..3)");
+        assert_eq!(irq_names(&["nvme0q0"]), "nvme0q0");
+        assert_eq!(
+            irq_names(&["eth0-rx-0", "eth0-rx-2", "eth0-tx-1", "i915"]),
+            "eth0-rx-0, eth0-rx-2, eth0-tx-1 +1 more"
+        );
     }
 
     #[test]

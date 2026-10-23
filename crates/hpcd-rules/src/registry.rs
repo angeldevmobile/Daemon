@@ -67,6 +67,11 @@ pub const CHECKS: &[Check] = &[
         description: "A large share of the target's memory is on a node remote to its hot threads",
         run: checks::numa_remote_memory,
     },
+    Check {
+        name: "sub_numa_clustering",
+        description: "More NUMA nodes than CPU sockets (SNC or NPS enabled in firmware)",
+        run: checks::sub_numa_clustering,
+    },
 ];
 
 pub const ACTIONS: &[Action] = &[

@@ -1,5 +1,5 @@
 use hpcd_core::Finding;
-use hpcd_probe::Capture;
+use hpcd_probe::{Capture, Machine};
 use hpcd_rules::{Rule, registry};
 
 use crate::style::{self, paint, severity_badge};
@@ -69,6 +69,16 @@ pub fn explain(rule: &Rule) -> String {
         section(&mut out, "CONFLICTS", lines);
     }
 
+    if !rule.propose.is_empty() {
+        let width = rule.propose.keys().map(String::len).max().unwrap_or(0);
+        let lines = rule.propose.iter().flat_map(|(vendor, steps)| {
+            steps
+                .iter()
+                .map(move |s| format!("{}  {s}", paint(style::DIM, format!("{vendor:<width$}"))))
+        });
+        section(&mut out, "PROPOSE", lines);
+    }
+
     section(
         &mut out,
         "REFERENCES",
@@ -77,13 +87,18 @@ pub fn explain(rule: &Rule) -> String {
     out.join("\n")
 }
 
+pub enum Footer<'a> {
+    Fix(&'a str),
+    Text(String),
+}
+
 pub fn audit(
     title: &str,
     subject: &str,
     qualifier: Option<&str>,
     details: &[String],
     findings: &[Finding],
-    fix_command: &str,
+    footer: Footer,
 ) -> String {
     let mut findings: Vec<&Finding> = findings.iter().collect();
     findings.sort_by_key(|f| std::cmp::Reverse(f.severity));
@@ -117,6 +132,17 @@ pub fn audit(
         out.extend(lines.map(|l| format!("{continuation}{l}")));
     }
 
+    out.push(String::new());
+    let fix_command = match footer {
+        Footer::Text(text) => {
+            out.push(text);
+            return out.join(
+                "
+",
+            );
+        }
+        Footer::Fix(command) => command,
+    };
     let fixable = findings.iter().filter(|f| f.fixable_at_runtime).count();
     let sep = paint(style::DIM, " · ");
     let mut footer = format!(
@@ -128,8 +154,90 @@ pub fn audit(
     if fixable > 0 {
         footer += &format!("{sep}{}", paint(style::ID, fix_command));
     }
-    out.push(String::new());
     out.push(footer);
+    out.join("\n")
+}
+
+pub fn machine(machine: &Machine, packages: usize) -> Option<String> {
+    let mut parts = Vec::new();
+    let name = [
+        machine.vendor.as_deref().map(vendor_name),
+        machine.product.clone(),
+    ]
+    .into_iter()
+    .flatten()
+    .collect::<Vec<_>>()
+    .join(" ");
+    if !name.is_empty() {
+        parts.push(name);
+    }
+    if let Some(bios) = &machine.bios {
+        parts.push(format!("BIOS {bios}"));
+    }
+    if let Some(model) = &machine.cpu_model {
+        parts.push(if packages > 1 {
+            format!("{packages} × {model}")
+        } else {
+            model.clone()
+        });
+    }
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+fn vendor_name(vendor: &str) -> String {
+    let lower = vendor.to_lowercase();
+    let known = [
+        ("dell", "Dell"),
+        ("hewlett", "HPE"),
+        ("hpe", "HPE"),
+        ("lenovo", "Lenovo"),
+        ("supermicro", "Supermicro"),
+    ];
+    known
+        .iter()
+        .find(|(key, _)| lower.contains(key))
+        .map_or(vendor.to_string(), |(_, name)| name.to_string())
+}
+
+pub fn firmware_proposal(machine: &Machine, rules: &[&Rule]) -> String {
+    let vendor = machine.vendor.as_deref().map(vendor_name);
+    let key = vendor.as_deref().map(str::to_lowercase);
+    let has_vendor_steps = |r: &&Rule| key.as_ref().is_some_and(|k| r.propose.contains_key(k));
+    let (label, place) = match (key.as_deref(), rules.iter().any(has_vendor_steps)) {
+        (Some("dell"), true) => ("Dell", "System Setup (F2) or iDRAC → BIOS Settings"),
+        (Some("hpe"), true) => ("HPE", "System Utilities (F9) or iLO → BIOS"),
+        (Some("lenovo"), true) => ("Lenovo", "System Setup (F1) or XClarity Controller"),
+        (Some("supermicro"), true) => ("Supermicro", "BIOS Setup (Del) or BMC"),
+        _ => ("generic", "the firmware setup utility"),
+    };
+
+    let mut out = vec![format!(
+        "{}{}",
+        paint(style::ACCENT, "proposal"),
+        paint(style::DIM, format!(" · {label} · {place}"))
+    )];
+    let steps = rules.iter().flat_map(|r| {
+        key.as_ref()
+            .and_then(|k| r.propose.get(k))
+            .or_else(|| r.propose.get("generic"))
+            .into_iter()
+            .flatten()
+    });
+    for (i, step) in steps.enumerate() {
+        let step = match step.rsplit_once(" = ") {
+            Some((setting, value)) => format!("{setting} = {}", paint(style::ID.bold(), value)),
+            None => step.clone(),
+        };
+        out.push(format!(
+            "{}  {step}",
+            paint(style::DIM, format!("{}.", i + 1))
+        ));
+    }
+    out.push(String::new());
+    out.push(paint(
+        style::DIM,
+        "hpcd never writes BIOS settings. After the reboot, re-run this audit to verify.",
+    ));
     out.join("\n")
 }
 
@@ -285,7 +393,7 @@ mod tests {
             Some("(pid 4821)"),
             &details,
             &findings,
-            "hpcctl fix --unit order-gateway.service",
+            Footer::Fix("hpcctl fix --unit order-gateway.service"),
         );
         let expected = "\
 hpcd audit · order-gateway.service (pid 4821) · 8 threads · 4 rules matched
@@ -308,7 +416,7 @@ hpcd audit · order-gateway.service (pid 4821) · 8 threads · 4 rules matched
             None,
             &["1 thread".to_string()],
             &[],
-            "hpcctl fix --pid 1148",
+            Footer::Fix("hpcctl fix --pid 1148"),
         );
         assert_eq!(
             plain(&text),
@@ -342,6 +450,43 @@ hpcd audit · order-gateway.service (pid 4821) · 8 threads · 4 rules matched
         let shown = plain(&capture("order-gateway.service", None, &captured, None));
         assert!(shown.contains("   t1  /proc/interrupts  "));
         assert!(shown.ends_with("nothing written (--show)"));
+    }
+
+    #[test]
+    fn firmware_proposal_uses_vendor_steps_or_generic() {
+        let rules = hpcd_rules::load_embedded().unwrap();
+        let smt: Vec<&Rule> = rules.iter().filter(|r| r.id == "smt-enabled").collect();
+
+        let dell = Machine {
+            vendor: Some("Dell Inc.".into()),
+            ..Default::default()
+        };
+        let text = plain(&firmware_proposal(&dell, &smt));
+        assert!(text.starts_with("proposal · Dell · System Setup (F2) or iDRAC → BIOS Settings\n"));
+        assert!(text.contains("1.  Processor Settings → Logical Processor = Disabled\n"));
+
+        let vm = Machine {
+            vendor: Some("Microsoft Corporation".into()),
+            ..Default::default()
+        };
+        let text = plain(&firmware_proposal(&vm, &smt));
+        assert!(text.starts_with("proposal · generic · the firmware setup utility\n"));
+        assert!(text.ends_with("re-run this audit to verify."));
+    }
+
+    #[test]
+    fn describes_machine_like_the_design() {
+        let m = Machine {
+            vendor: Some("Dell Inc.".into()),
+            product: Some("PowerEdge R650".into()),
+            bios: Some("1.9.2".into()),
+            cpu_model: Some("Xeon Gold 6338".into()),
+        };
+        assert_eq!(
+            machine(&m, 2).unwrap(),
+            "Dell PowerEdge R650 · BIOS 1.9.2 · 2 × Xeon Gold 6338"
+        );
+        assert!(machine(&Machine::default(), 0).is_none());
     }
 
     #[test]

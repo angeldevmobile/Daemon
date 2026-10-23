@@ -31,3 +31,8 @@ reboot = false
 
 [references]
 links = ["https://..."]             # at least one, explaining *why*
+
+# Firmware rules only: what a human should change in the firmware setup, per vendor.
+# Keys: dell, hpe, lenovo, supermicro, generic (required). Values: "Menu → Setting = Value".
+# [propose]
+# generic = ["..."]

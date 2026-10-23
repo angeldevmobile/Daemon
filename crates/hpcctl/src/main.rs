@@ -149,26 +149,33 @@ fn audit(
     let obs = hpcd_probe::observe(&source, &target)?;
     let findings = hpcd_rules::evaluate(&rules, &obs)?;
 
-    let qualifier = pid_qualifier(&target, &obs.pids);
-    let details = [render::plural(obs.threads.len(), "thread", "threads")];
-
-    let title = if firmware {
-        "hpcd firmware audit"
-    } else {
-        "hpcd audit"
-    };
-    let fix = format!("hpcctl fix {}", selector(&target));
-    anstream::println!(
-        "{}",
+    let text = if firmware {
+        let matched: Vec<&Rule> = rules
+            .iter()
+            .filter(|r| findings.iter().any(|f| f.rule_id == r.id))
+            .collect();
+        let subject =
+            render::machine(&obs.machine, obs.packages()).unwrap_or_else(|| target.to_string());
         render::audit(
-            title,
-            &target.to_string(),
-            qualifier.as_deref(),
-            &details,
+            "hpcd firmware audit",
+            &subject,
+            None,
+            &[],
             &findings,
-            &fix
+            render::Footer::Text(render::firmware_proposal(&obs.machine, &matched)),
         )
-    );
+    } else {
+        let fix = format!("hpcctl fix {}", selector(&target));
+        render::audit(
+            "hpcd audit",
+            &target.to_string(),
+            pid_qualifier(&target, &obs.pids).as_deref(),
+            &[render::plural(obs.threads.len(), "thread", "threads")],
+            &findings,
+            render::Footer::Fix(&fix),
+        )
+    };
+    anstream::println!("{text}");
     Ok(())
 }
 

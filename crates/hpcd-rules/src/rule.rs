@@ -44,6 +44,8 @@ pub struct Rule {
     pub detect: Detect,
     pub explain: Explain,
     pub fix: Option<Fix>,
+    #[serde(default)]
+    pub propose: BTreeMap<String, Vec<String>>,
     pub references: References,
 }
 
