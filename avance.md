@@ -50,7 +50,8 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/irq-on-hot-core
   "thread", y la salida con 0 hallazgos ahora dice `✔ no issues found`.
 - Ojo al probar: `cargo run … &` deja en `$!` el pid de cargo, no el del programa. Lanzar el
   binario directamente.
-- Pendiente de confirmar: `--unit` en WSL, que usa cgroups v1.
+- `audit --pid` sobre `jitter-demo --noise`: 9 hilos detectados.
+- `audit --unit systemd-journald.service` encuentra la unidad con cgroups v1 (WSL).
 
 ### 2026-10-22 · `hpcctl` como CLI independiente
 
