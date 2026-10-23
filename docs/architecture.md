@@ -39,4 +39,5 @@ capture/
 ```
 
 Rates (IRQs per second, CPU share per thread) come from the difference between `t0` and `t1`.
-Rule fixtures in `rules/tests/<rule-id>/` use the same format.
+Rule fixtures in `rules/tests/<host>/` use the same format; one fixture can exercise several
+rules (`rules/tests/order-gateway/` covers the eight rules of the audit screen).
