@@ -6,6 +6,11 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 
 **Versión en curso:** v0.2 — Measure (v0.1 — Audit ✅ terminada y probada en WSL)
 
+> **Dónde nos quedamos (2026-10-23):** `hpcctl measure` funciona en WSL con eBPF. Lo siguiente es
+> el **chequeo de estabilidad** (pantalla 04): comparar CPU del target, wakeups/s y cambios de
+> contexto entre ventanas, y negarse a dar veredicto si la carga no es estable, sugiriendo
+> `--wait-stable`, `--metric` o `--bench`. Pendiente subir el commit de `measure` si no se hizo.
+
 | Pieza | Estado |
 |---|---|
 | Workspace y crates (`hpcd-core`, `hpcd-probe`, `hpcd-rules`, `hpcctl`, `jitter-demo`) | ✅ |
@@ -17,6 +22,10 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | `hpcctl audit --firmware` (pantalla 12) | ✅ máquina, `smt-enabled`, `sub-numa-clustering`, propuesta por fabricante (las que necesitan root quedan para v0.2) |
 | `hpcctl capture` (directorio, `--show`) | ✅ |
 | CLI instalable (`cargo install`), reglas dentro del binario | ✅ |
+| Banner `hpcctl` sin argumentos (pantalla 14) | ✅ |
+| `hpcctl measure` con eBPF (aya), p50/p99/p99.9 con intervalo de confianza, `--assert` (pantalla 13) | ✅ probado en WSL |
+| Chequeo de estabilidad (pantalla 04) | ❌ siguiente |
+| Guardrails, overhead propio, SMI, herramientas MCP de solo lectura | ❌ |
 | Set inicial completo: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing` | ✅ con fixture |
 | Firmware sin root: `smt-enabled`, `sub-numa-clustering` | ✅ |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
@@ -26,9 +35,20 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 
 ```powershell
 cargo test --workspace
+cargo run -p hpcctl
 cargo run -p hpcctl -- explain irq-on-hot-core
 cargo run -p hpcctl -- audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 cargo run --release -p jitter-demo -- --noise
+```
+
+Medir latencia (Linux/WSL, necesita nightly + `bpf-linker`, ver README):
+
+```bash
+export CARGO_TARGET_DIR=~/hpcd-target
+cargo install --locked --path crates/hpcctl
+~/hpcd-target/release/jitter-demo --noise > /dev/null &
+sudo ~/.cargo/bin/hpcctl measure --pid $! --windows 3 --window 5 --assert "p99 < 1ms"
+kill %1
 ```
 
 `audit` en vivo solo funciona en Linux. En Windows usar `--snapshot`.
