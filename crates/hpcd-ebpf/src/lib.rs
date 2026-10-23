@@ -1,6 +1,12 @@
 #![cfg_attr(not(test), no_std)]
 
 pub const BUCKETS: u32 = 16 + 36 * 16;
+
+pub const STAT_WAKEUP: u32 = 0;
+pub const STAT_SWITCH: u32 = 1;
+pub const STAT_RUNNABLE: u32 = 2;
+pub const STAT_RECORDED: u32 = 3;
+pub const STATS: u32 = 4;
 const MAX_NS: u64 = (1 << 40) - 1;
 
 #[inline(always)]

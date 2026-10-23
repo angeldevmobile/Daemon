@@ -519,8 +519,12 @@ and `bpf-linker` to build its eBPF program:
 
 ```console
 $ rustup toolchain install nightly --component rust-src
-$ cargo install bpf-linker
+$ curl -LO https://github.com/aya-rs/bpf-linker/releases/latest/download/bpf-linker-x86_64-unknown-linux-musl.tar.zst
+$ mkdir -p ~/.local/bin && tar --zstd -xpf bpf-linker-*.tar.zst -C ~/.local/bin
 ```
+
+`bpf-linker` is the official prebuilt binary from aya-rs; `cargo install bpf-linker` needs a matching
+system LLVM and is not recommended. `~/.local/bin` must be on your `PATH`.
 
 Without them, build with `AYA_BUILD_SKIP=1`: everything works except `hpcctl measure`.
 

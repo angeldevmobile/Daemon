@@ -27,6 +27,15 @@ pub struct Measurement {
     pub pids: Vec<u32>,
     pub threads: usize,
     pub blocks: Vec<Histogram>,
+    pub counters: Counters,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Counters {
+    pub wakeups: u64,
+    pub switches: u64,
+    pub target_runnable: u64,
+    pub recorded: u64,
 }
 
 impl Measurement {

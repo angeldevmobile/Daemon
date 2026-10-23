@@ -229,7 +229,15 @@ fn measure(target: Target, windows: u32, window: u64, asserts: &[String]) -> Res
         anstream::eprint!("\r\x1b[2K");
     }
     if m.wakeups() == 0 {
-        bail!("no wakeups observed for {target}; is it running?");
+        let c = m.counters;
+        bail!(
+            "no wakeups recorded for {target} ({} threads watched; tracepoints saw {} wakeups and {} switches, {} runnable events for the target, {} recorded)",
+            m.threads,
+            c.wakeups,
+            c.switches,
+            c.target_runnable,
+            c.recorded
+        );
     }
 
     let mut quantiles: Vec<(String, f64)> = [("p50", 0.5), ("p99", 0.99), ("p99.9", 0.999)]

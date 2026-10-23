@@ -19,7 +19,7 @@ fn main() {
     if let Err(e) = aya_build::build_ebpf([package], aya_build::Toolchain::default()) {
         panic!(
             "building the eBPF program failed: {e:#}\n\
-             needs: rustup toolchain install nightly --component rust-src && cargo install bpf-linker\n\
+             needs: nightly with rust-src, and the prebuilt bpf-linker on PATH (see README, Getting started)\n\
              or set AYA_BUILD_SKIP=1 to build hpcctl without `measure`"
         );
     }

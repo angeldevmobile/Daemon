@@ -1,13 +1,14 @@
 use std::collections::BTreeSet;
+use std::os::unix::fs::MetadataExt;
 use std::time::Instant;
 
 use aya::maps::{HashMap, MapData, PerCpuArray};
 use aya::programs::TracePoint;
 use aya::{Ebpf, EbpfLoader, include_bytes_aligned};
-use hpcd_ebpf::BUCKETS;
+use hpcd_ebpf::{BUCKETS, STATS};
 use hpcd_probe::SysRoot;
 
-use crate::{BLOCK, Histogram, MeasureError, Measurement};
+use crate::{BLOCK, Counters, Histogram, MeasureError, Measurement};
 
 static PROGRAM: &[u8] = include_bytes_aligned!(concat!(env!("OUT_DIR"), "/hpcd-ebpf"));
 
@@ -62,6 +63,11 @@ fn load() -> Result<Ebpf, MeasureError> {
     for (name, value) in &offsets {
         loader.override_global(name, value, true);
     }
+    let (dev, ino) = std::fs::metadata("/proc/self/ns/pid")
+        .map(|m| (m.dev(), m.ino()))
+        .unwrap_or((0, 0));
+    loader.override_global("PIDNS_DEV", &dev, true);
+    loader.override_global("PIDNS_INO", &ino, true);
     let mut ebpf = loader.load(PROGRAM).map_err(|e| {
         ebpf_err("loading eBPF (needs root, or CAP_BPF and CAP_PERFMON)")(e.to_string())
     })?;
@@ -111,6 +117,8 @@ pub fn run(
         .map_err(|e| ebpf_err("TARGETS")(e.to_string()))?;
     let hist: PerCpuArray<MapData, u64> = PerCpuArray::try_from(take(&mut ebpf, "HIST")?)
         .map_err(|e| ebpf_err("HIST")(e.to_string()))?;
+    let counters: PerCpuArray<MapData, u64> = PerCpuArray::try_from(take(&mut ebpf, "COUNTERS")?)
+        .map_err(|e| ebpf_err("COUNTERS")(e.to_string()))?;
 
     let root = SysRoot::live();
     let mut seen = BTreeSet::new();
@@ -132,10 +140,23 @@ pub fn run(
         previous = current;
         progress(i + 1, blocks);
     }
+    let mut stats = [0u64; STATS as usize];
+    for (i, slot) in stats.iter_mut().enumerate() {
+        *slot = counters
+            .get(&(i as u32), 0)
+            .map(|per_cpu| per_cpu.iter().sum())
+            .map_err(|e| ebpf_err("reading counters")(e.to_string()))?;
+    }
     drop(ebpf);
     Ok(Measurement {
         pids,
         threads: seen.len(),
         blocks: result,
+        counters: Counters {
+            wakeups: stats[0],
+            switches: stats[1],
+            target_runnable: stats[2],
+            recorded: stats[3],
+        },
     })
 }

@@ -42,6 +42,22 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Registro
 
+### 2026-10-23 · `measure` funciona en WSL
+
+- `bpf-linker`: binario oficial de las releases de `aya-rs/bpf-linker`. `cargo install bpf-linker`
+  falla (pide LLVM 23 del sistema; Ubuntu 24.04 trae 20) y su README lo desaconseja.
+- Primer build: compiló, el verificador aceptó el programa y los tracepoints se conectaron,
+  pero 0 wakeups del target.
+- Causa: WSL2 corre cada distro en su propio PID namespace (inodo `4026532874`; el raíz es
+  `4026531836`). Los tracepoints reportan pids globales y `hpcctl` conoce los del namespace.
+  Lo mismo pasa en Docker y Kubernetes.
+- Arreglo: en `sched_switch`, el programa pregunta el pid del hilo que sale con
+  `bpf_get_ns_current_pid_tgid` y, si es del target, aprende su pid global (mapa `GLOBAL`).
+- Contadores de diagnóstico en el programa (wakeups, switches, eventos del target, registrados):
+  si no hay datos, `measure` dice en qué paso se perdieron.
+- Resultado sobre `jitter-demo --noise` (3 × 5s): p99 56µs [34–152], p99.9 1.47ms [1.03–2.00];
+  `--assert "p99.9 < 1ms"` falla con código 1. Sin root: error claro pidiendo CAP_BPF/CAP_PERFMON.
+
 ### 2026-10-22 · v0.2 empieza: `hpcctl measure` con eBPF (aya)
 
 - Librería eBPF: **aya** (todo Rust). Versiones fijadas: `aya =0.14.0`, `aya-ebpf =0.2.1`,
@@ -227,7 +243,7 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. v0.2: probar `measure` en WSL (primer build del programa eBPF). Después: chequeo de
+1. v0.2, siguiente: chequeo de
    estabilidad (pantalla 04), guardrails (throughput, CPU, energía, memoria), overhead propio,
    detección de SMI y herramientas MCP de solo lectura.
 2. Probar en una máquina física cuando haya una a mano.
