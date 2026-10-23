@@ -1,0 +1,20 @@
+# Default hpcd policy. Conservative: changes need a human, noise injection is off.
+
+[mode]
+default = "interactive"   # dry-run | interactive | auto
+
+[guardrails]
+throughput_drop = "5%"
+power_increase  = "25W"
+cpu_increase    = "10pts"
+rss_increase    = "10%"
+
+[measure]
+min_effect = "5%"
+
+[agents]
+apply_fix  = "approval"   # allow | approval | deny
+commit_fix = "approval"
+
+[noise]
+allow_noise = false

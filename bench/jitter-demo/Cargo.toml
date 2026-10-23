@@ -1,0 +1,10 @@
+[package]
+name = "jitter-demo"
+description = "A periodic latency-sensitive loop with optional noise, for trying hpcd"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]

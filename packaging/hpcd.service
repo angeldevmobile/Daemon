@@ -1,0 +1,14 @@
+[Unit]
+Description=hpcd - High-Performance Compute Daemon
+Documentation=https://github.com/angeldevmobile/Daemon
+After=network.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/hpcd --config /etc/hpcd/policy.toml
+Restart=on-failure
+StateDirectory=hpcd
+RuntimeDirectory=hpcd
+
+[Install]
+WantedBy=multi-user.target
