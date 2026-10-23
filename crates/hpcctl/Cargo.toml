@@ -1,0 +1,17 @@
+[package]
+name = "hpcctl"
+description = "hpcd client: CLI (later: MCP server)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+hpcd-core.workspace = true
+hpcd-probe.workspace = true
+hpcd-rules.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+anstream.workspace = true
+anstyle.workspace = true

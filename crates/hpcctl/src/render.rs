@@ -1,0 +1,235 @@
+use hpcd_core::Finding;
+use hpcd_rules::{Rule, registry};
+
+use crate::style::{self, paint, severity_badge};
+
+const INDENT: &str = "   ";
+const ID_WIDTH: usize = 22;
+
+pub fn explain(rule: &Rule) -> String {
+    let mut out = vec![format!(
+        "{} · {}",
+        paint(style::ID.bold(), &rule.id),
+        rule.title
+    )];
+
+    let mut meta = format!(
+        "{}{}{}{}",
+        paint(style::DIM, "category "),
+        rule.category.dir_name(),
+        paint(style::DIM, "  ·  severity "),
+        severity_badge(rule.severity),
+    );
+    if let Some(fix) = &rule.fix {
+        let (reboot, reboot_style) = if fix.reboot {
+            ("yes", style::WARN)
+        } else {
+            ("no", style::OK)
+        };
+        meta += &format!(
+            "{}{}{}{}",
+            paint(style::DIM, "  ·  risk "),
+            paint(style::risk(fix.risk), fix.risk),
+            paint(style::DIM, "  ·  reboot "),
+            paint(reboot_style, reboot),
+        );
+    }
+    out.push(meta);
+
+    section(
+        &mut out,
+        "WHY",
+        rule.explain.summary.trim().lines().map(String::from),
+    );
+
+    if !rule.explain.evidence.is_empty() {
+        let sources = format!("sources: {}", rule.explain.evidence.join(", "));
+        section(&mut out, "EVIDENCE", [paint(style::DIM, sources)]);
+    }
+
+    let fix_lines = match &rule.fix {
+        Some(fix) => {
+            let mut action = paint(style::ID, &fix.action);
+            if let Some(to) = fix.params.get("to").and_then(|v| v.as_str()) {
+                action += &format!(" → {}", to.replace('_', " "));
+            }
+            let revert = registry::action(&fix.action).map_or("", |a| a.revert);
+            vec![action, format!("{}  {revert}", paint(style::DIM, "revert"))]
+        }
+        None => vec![paint(style::DIM, "detect only · no runtime fix")],
+    };
+    section(&mut out, "FIX", fix_lines);
+
+    if let Some(fix) = rule.fix.as_ref().filter(|f| !f.conflicts.is_empty()) {
+        let lines = fix
+            .conflicts
+            .iter()
+            .map(|(tool, advice)| format!("{}{tool}: {advice}", paint(style::WARN, "⚠ ")));
+        section(&mut out, "CONFLICTS", lines);
+    }
+
+    section(
+        &mut out,
+        "REFERENCES",
+        rule.references.links.iter().map(|l| paint(style::LINK, l)),
+    );
+    out.join("\n")
+}
+
+pub fn audit(
+    title: &str,
+    subject: &str,
+    details: &[String],
+    findings: &[Finding],
+    fix_command: &str,
+) -> String {
+    let mut findings: Vec<&Finding> = findings.iter().collect();
+    findings.sort_by_key(|f| std::cmp::Reverse(f.severity));
+
+    let mut header = format!(
+        "{}{}{subject}",
+        paint(style::ACCENT, title),
+        paint(style::DIM, " · ")
+    );
+    let mut rest: Vec<String> = details.to_vec();
+    let n = findings.len();
+    rest.push(format!(
+        "{n} {} matched",
+        if n == 1 { "rule" } else { "rules" }
+    ));
+    header += &paint(style::DIM, format!(" {}", rest.join(" · ")));
+
+    let mut out = vec![header, String::new()];
+    let continuation = " ".repeat(1 + 6 + 2 + ID_WIDTH);
+    for f in &findings {
+        let mut lines = f.message.lines();
+        out.push(format!(
+            " {}  {}{}",
+            severity_badge(f.severity),
+            paint(style::ID, format!("{:<w$} ", f.rule_id, w = ID_WIDTH - 1)),
+            lines.next().unwrap_or_default(),
+        ));
+        out.extend(lines.map(|l| format!("{continuation}{l}")));
+    }
+
+    let fixable = findings.iter().filter(|f| f.fixable_at_runtime).count();
+    let sep = paint(style::DIM, " · ");
+    let mut footer = format!(
+        "{}{sep}{}{}",
+        paint(style::OK_BOLD, format!("{fixable} fixable at runtime")),
+        paint(style::ID, "hpcctl explain <rule>"),
+        paint(style::DIM, " for details"),
+    );
+    if fixable > 0 {
+        footer += &format!("{sep}{}", paint(style::ID, fix_command));
+    }
+    out.push(String::new());
+    out.push(footer);
+    out.join("\n")
+}
+
+fn section(out: &mut Vec<String>, name: &str, lines: impl IntoIterator<Item = String>) {
+    out.push(String::new());
+    out.push(paint(style::HEADING, name));
+    out.extend(lines.into_iter().map(|l| format!("{INDENT}{l}")));
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use hpcd_core::Severity;
+
+    use super::*;
+
+    fn plain(s: &str) -> String {
+        anstream::adapter::strip_str(s).to_string()
+    }
+
+    fn finding(rule_id: &str, severity: Severity, message: &str, fixable: bool) -> Finding {
+        Finding {
+            rule_id: rule_id.into(),
+            severity,
+            message: message.into(),
+            evidence: vec![],
+            fixable_at_runtime: fixable,
+        }
+    }
+
+    #[test]
+    fn audit_matches_design() {
+        let findings = [
+            finding(
+                "isolcpus-missing",
+                Severity::Info,
+                "No isolated cores (requires reboot, proposal only)",
+                false,
+            ),
+            finding(
+                "irq-on-hot-core",
+                Severity::High,
+                "IRQs for eth0 (rx-0..3) are handled on core 3,\nwhere hot thread 4823 runs",
+                true,
+            ),
+            finding(
+                "irqbalance-active",
+                Severity::Warn,
+                "irqbalance is running and would undo IRQ affinity changes",
+                false,
+            ),
+            finding(
+                "deep-cstates",
+                Severity::High,
+                "C6 enabled on cores 2-5 (exit latency 133µs)",
+                true,
+            ),
+        ];
+        let details = ["(pid 4821)".to_string(), "8 threads".to_string()];
+        let text = audit(
+            "hpcd audit",
+            "order-gateway.service",
+            &details,
+            &findings,
+            "hpcctl fix --unit order-gateway.service",
+        );
+        let expected = "\
+hpcd audit · order-gateway.service (pid 4821) · 8 threads · 4 rules matched
+
+  HIGH   irq-on-hot-core       IRQs for eth0 (rx-0..3) are handled on core 3,
+                               where hot thread 4823 runs
+  HIGH   deep-cstates          C6 enabled on cores 2-5 (exit latency 133µs)
+  WARN   irqbalance-active     irqbalance is running and would undo IRQ affinity changes
+  INFO   isolcpus-missing      No isolated cores (requires reboot, proposal only)
+
+2 fixable at runtime · hpcctl explain <rule> for details · hpcctl fix --unit order-gateway.service";
+        assert_eq!(plain(&text), expected);
+    }
+
+    #[test]
+    fn explain_matches_design() {
+        let path =
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rules/irq/irq-on-hot-core.toml");
+        let rule = hpcd_rules::load_file(&path).unwrap();
+        let expected = "\
+irq-on-hot-core · Interrupts handled on a latency-critical core
+category irq  ·  severity  HIGH   ·  risk low  ·  reboot no
+
+WHY
+   Hardware interrupts preempt whatever is running on the core that handles them.
+   If that core runs a latency-critical thread, every interrupt adds jitter.
+
+EVIDENCE
+   sources: /proc/interrupts, /proc/irq/*/smp_affinity_list
+
+FIX
+   set_irq_affinity → housekeeping cores
+   revert  restore each IRQ's previous smp_affinity_list
+
+CONFLICTS
+   ⚠ irqbalance: Ban the affected IRQs or the hot cores in irqbalance, or it will undo this fix
+
+REFERENCES
+   https://docs.kernel.org/core-api/irq/irq-affinity.html";
+        assert_eq!(plain(&explain(&rule)), expected);
+    }
+}
