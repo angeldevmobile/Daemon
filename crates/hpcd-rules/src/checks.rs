@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use hpcd_core::Evidence;
-use hpcd_probe::{Irq, Observation, Thread};
+use hpcd_probe::{CpuSet, IdleState, Irq, Observation, Thread};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
@@ -30,12 +30,7 @@ struct IrqAffinityOverlaps {
 
 pub fn irq_affinity_overlaps(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
     let p: IrqAffinityOverlaps = params(&rule.detect.params)?;
-    if p.target != "hot_threads" {
-        return Err(format!(
-            "unsupported target '{}', expected 'hot_threads'",
-            p.target
-        ));
-    }
+    hot_threads_target(&p.target)?;
 
     let mut by_core: BTreeMap<u32, Vec<&Thread>> = BTreeMap::new();
     for t in obs.hot_threads() {
@@ -89,6 +84,118 @@ pub fn irq_affinity_overlaps(rule: &Rule, obs: &Observation) -> Result<Option<Hi
         })
         .collect();
     Ok(Some(Hit { message, evidence }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CpuidleDeepStates {
+    target: String,
+    max_exit_latency_us: u64,
+}
+
+pub fn cpuidle_deep_states(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let p: CpuidleDeepStates = params(&rule.detect.params)?;
+    hot_threads_target(&p.target)?;
+
+    let mut deepest: Option<&IdleState> = None;
+    let mut cores = Vec::new();
+    let mut evidence = Vec::new();
+    for core in obs.hot_cores().iter() {
+        let Some(cpu) = obs.cpus.get(&core) else {
+            continue;
+        };
+        let deep: Vec<&IdleState> = cpu
+            .idle_states
+            .iter()
+            .filter(|s| !s.disabled && s.latency_us > p.max_exit_latency_us)
+            .collect();
+        if deep.is_empty() {
+            continue;
+        }
+        cores.push(core);
+        for s in &deep {
+            evidence.push(Evidence {
+                source: format!("/sys/devices/system/cpu/cpu{core}/cpuidle/state{}", s.index),
+                excerpt: format!("{} enabled · exit latency {}µs", s.name, s.latency_us),
+            });
+        }
+        let core_deepest = deep.into_iter().max_by_key(|s| s.latency_us);
+        if core_deepest.map(|s| s.latency_us) > deepest.map(|s| s.latency_us) {
+            deepest = core_deepest;
+        }
+    }
+    let Some(state) = deepest else {
+        return Ok(None);
+    };
+    let message = format!(
+        "{} enabled on {} (exit latency {}µs)",
+        state.name,
+        cores_phrase(&cores.into_iter().collect()),
+        state.latency_us
+    );
+    Ok(Some(Hit { message, evidence }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CpufreqGovernor {
+    target: String,
+    governors: Vec<String>,
+}
+
+pub fn cpufreq_governor(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let p: CpufreqGovernor = params(&rule.detect.params)?;
+    hot_threads_target(&p.target)?;
+
+    let mut by_governor: BTreeMap<&str, Vec<u32>> = BTreeMap::new();
+    let mut evidence = Vec::new();
+    for core in obs.hot_cores().iter() {
+        let Some(cpu) = obs.cpus.get(&core) else {
+            continue;
+        };
+        let Some(governor) = cpu.governor.as_deref() else {
+            continue;
+        };
+        if p.governors.iter().any(|g| g == governor) {
+            by_governor.entry(governor).or_default().push(core);
+            evidence.push(Evidence {
+                source: format!("/sys/devices/system/cpu/cpu{core}/cpufreq/scaling_governor"),
+                excerpt: format!(
+                    "{governor} · driver {}",
+                    cpu.driver.as_deref().unwrap_or("?")
+                ),
+            });
+        }
+    }
+    if by_governor.is_empty() {
+        return Ok(None);
+    }
+    let message = by_governor
+        .into_iter()
+        .map(|(g, cores)| {
+            format!(
+                "Governor '{g}' on {}",
+                cores_phrase(&cores.into_iter().collect())
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("; ");
+    Ok(Some(Hit { message, evidence }))
+}
+
+fn hot_threads_target(target: &str) -> Result<(), String> {
+    if target == "hot_threads" {
+        Ok(())
+    } else {
+        Err(format!(
+            "unsupported target '{target}', expected 'hot_threads'"
+        ))
+    }
+}
+
+fn cores_phrase(cores: &CpuSet) -> String {
+    let single = cores.iter().count() == 1;
+    format!("{} {cores}", if single { "core" } else { "cores" })
 }
 
 fn thousands(n: f64) -> String {

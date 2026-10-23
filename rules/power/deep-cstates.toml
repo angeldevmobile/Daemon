@@ -1,0 +1,35 @@
+id       = "deep-cstates"
+title    = "Deep C-states enabled on latency-critical cores"
+category = "power"
+severity = "high"
+platform = "linux"
+goal     = ["latency", "stability"]
+order    = 20
+
+[detect]
+check               = "cpuidle_deep_states"
+target              = "hot_threads"
+max_exit_latency_us = 20
+
+[explain]
+summary = """
+An idle core drops into a C-state to save power. Waking it from a deep state takes tens to
+hundreds of microseconds, and a latency-critical thread waits that long every time it is woken.
+Holding cores out of deep C-states removes the wait but costs power.
+"""
+evidence = ["/sys/devices/system/cpu/cpu*/cpuidle/state*/{name,latency,disable}"]
+
+[fix]
+action   = "hold_cpu_dma_latency"
+value_us = 0
+risk     = "low"
+reboot   = false
+
+[fix.conflicts]
+tuned = "Profiles such as latency-performance already hold /dev/cpu_dma_latency; hpcd leaves theirs in place"
+
+[references]
+links = [
+    "https://docs.kernel.org/admin-guide/pm/cpuidle.html",
+    "https://docs.kernel.org/power/pm_qos_interface.html",
+]

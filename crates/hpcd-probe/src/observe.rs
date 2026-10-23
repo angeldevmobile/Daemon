@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use hpcd_core::Target;
 
+use crate::cpu::{self, CpuPower};
 use crate::interrupts::{self, IrqLine};
 use crate::tasks::{self, TaskStat};
 use crate::{CpuSet, ProbeError, Source, SysRoot};
@@ -44,11 +45,16 @@ pub struct Observation {
     pub pids: Vec<u32>,
     pub threads: Vec<Thread>,
     pub irqs: Vec<Irq>,
+    pub cpus: BTreeMap<u32, CpuPower>,
 }
 
 impl Observation {
     pub fn hot_threads(&self) -> impl Iterator<Item = &Thread> {
         self.threads.iter().filter(|t| t.cpu_share >= HOT_CPU_SHARE)
+    }
+
+    pub fn hot_cores(&self) -> CpuSet {
+        self.hot_threads().map(|t| t.core).collect()
     }
 }
 
@@ -141,5 +147,6 @@ pub fn observe(source: &Source, target: &Target) -> Result<Observation, ProbeErr
         pids,
         threads,
         irqs,
+        cpus: cpu::read_cpus(&second),
     })
 }

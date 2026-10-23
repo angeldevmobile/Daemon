@@ -17,8 +17,8 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | `hpcctl audit --firmware` (pantalla 12) | 🟡 opción lista, sin reglas de firmware |
 | `hpcctl capture` | ❌ |
 | CLI instalable (`cargo install`), reglas dentro del binario | ✅ |
-| Reglas: `irq-on-hot-core` | ✅ con fixture |
-| Reglas restantes del set inicial | ❌ |
+| Reglas: `irq-on-hot-core`, `deep-cstates`, `powersave-governor` | ✅ con fixture |
+| Reglas restantes del set inicial (`thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing`) | ❌ |
 | Reglas de conflictos (`irqbalance-active`, …) | ❌ |
 
 ## Cómo probar
@@ -26,7 +26,7 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 ```powershell
 cargo test --workspace
 cargo run -p hpcctl -- explain irq-on-hot-core
-cargo run -p hpcctl -- audit --unit order-gateway.service --snapshot rules/tests/irq-on-hot-core
+cargo run -p hpcctl -- audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 cargo run --release -p jitter-demo -- --noise
 ```
 
@@ -36,10 +36,35 @@ Como CLI instalada:
 
 ```powershell
 cargo install --path crates/hpcctl
-hpcctl audit --unit order-gateway.service --snapshot rules/tests/irq-on-hot-core
+hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-22 · Reglas de energía: `deep-cstates` y `powersave-governor`
+
+- `hpcd-probe` lee `/sys/devices/system/cpu/cpu*/cpuidle/state*` y `cpufreq/scaling_governor`.
+  Si no existen (VMs, WSL) no hay datos y las reglas no se disparan.
+- Check `cpuidle_deep_states`: C-states habilitados con latencia de salida mayor que
+  `max_exit_latency_us` (20 µs) en los cores de hilos calientes.
+- Check `cpufreq_governor`: governor de los cores calientes dentro de una lista
+  (`powersave`, `conservative`).
+- Acciones registradas (todavía sin implementar): `hold_cpu_dma_latency`,
+  `set_cpufreq_governor`, cada una con su reversión.
+- La captura de prueba pasa a llamarse `rules/tests/order-gateway/` y ahora dispara las tres
+  reglas, como la pantalla 01 del diseño.
+
+### 2026-10-22 · Revisión de seguridad de dependencias
+
+- Motivo: ataque a crates.io en agosto de 2026 (`arrayref`, `internment`, `append-only-vec`
+  con el dropper `proc-macro1`) y el compromiso de la CA eMudhra en octubre de 2026, que
+  afecta a `webpki-roots` / `rustls-webpki`.
+- `cargo audit` (1349 avisos de RustSec): 0 vulnerabilidades en las 42 dependencias.
+- El proyecto no usa ninguna librería de TLS/SSL (`rustls`, `openssl`, `ring`, `webpki`) ni
+  ninguno de los crates comprometidos.
+- Cachés de cargo: en Windows solo está `arrayref 0.3.9` (de otro proyecto), que es la última
+  versión limpia. En WSL no hay ninguno. `proc-macro1` no se descargó nunca.
+- Repetir `cargo audit` antes de cada versión y al agregar dependencias.
 
 ### 2026-10-22 · Primera prueba en vivo (WSL Ubuntu 24.04)
 
@@ -71,7 +96,7 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/irq-on-hot-core
 - Check `irq_affinity_overlaps`: suma las IRQs de dispositivo (no `LOC`, `RES`…) que caen en el
   core de un hilo caliente; si pasan `min_irq_rate`, hay hallazgo.
 - Formato de captura: `capture.toml` + `t0/` + `t1/` (ver `docs/architecture.md`).
-- Fixture `rules/tests/irq-on-hot-core/`: 8 cores, eth0 rx-0..3 en el core 3 (8,300 IRQs/s),
+- Fixture `rules/tests/order-gateway/`: 8 cores, eth0 rx-0..3 en el core 3 (8,300 IRQs/s),
   hilo `gw-io` al 95%.
 
 ### 2026-10-22 · Salida alineada con el diseño
@@ -106,7 +131,8 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/irq-on-hot-core
 
 1. `hpcctl capture` para generar capturas reales (`t0/`, `t1/`) desde Linux.
 2. Probar `audit` en vivo en WSL (Ubuntu no tiene Rust instalado todavía: `rustup`).
-3. Reglas `deep-cstates` y `powersave-governor` (nuevos checks de cpufreq/cpuidle).
-4. Regla de conflicto `irqbalance-active`.
+3. Regla de conflicto `irqbalance-active`.
+4. Resto de reglas del set inicial: `thread-migration`, `smt-sibling-busy`,
+   `remote-numa-memory`, `isolcpus-missing`.
 5. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
 6. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.

@@ -1,0 +1,36 @@
+id       = "powersave-governor"
+title    = "Power-saving frequency governor on latency-critical cores"
+category = "power"
+severity = "medium"
+platform = "linux"
+goal     = ["latency", "stability"]
+order    = 30
+
+[detect]
+check     = "cpufreq_governor"
+target    = "hot_threads"
+governors = ["powersave", "conservative"]
+
+[explain]
+summary = """
+The governor decides how fast a core runs. Power-saving governors lower the frequency when load
+is light, so a thread that wakes up for a short burst runs slowly until the frequency ramps up.
+With intel_pstate in active mode, 'powersave' still scales dynamically and the gain is smaller.
+"""
+evidence = ["/sys/devices/system/cpu/cpu*/cpufreq/scaling_governor", "/sys/devices/system/cpu/cpu*/cpufreq/scaling_driver"]
+
+[fix]
+action = "set_cpufreq_governor"
+to     = "performance"
+risk   = "low"
+reboot = false
+
+[fix.conflicts]
+tuned                 = "An active profile may set the governor back; hpcd reports it as drift"
+power-profiles-daemon = "Switching power profile changes the governor; hpcd reports it as drift"
+
+[references]
+links = [
+    "https://docs.kernel.org/admin-guide/pm/cpufreq.html",
+    "https://docs.kernel.org/admin-guide/pm/intel_pstate.html",
+]

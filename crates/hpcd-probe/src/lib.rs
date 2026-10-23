@@ -1,3 +1,4 @@
+mod cpu;
 mod cpuset;
 mod interrupts;
 mod observe;
@@ -6,6 +7,7 @@ mod tasks;
 
 use std::path::PathBuf;
 
+pub use cpu::{CpuPower, IdleState};
 pub use cpuset::CpuSet;
 pub use interrupts::IrqLine;
 pub use observe::{HOT_CPU_SHARE, Irq, Observation, Thread, observe};
