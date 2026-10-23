@@ -42,6 +42,15 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Registro
 
+### 2026-10-22 · Banner (pantalla 14)
+
+- Pantalla 14 en el diseño: "HPCD" en pixel art con degradado violeta → cian y tips.
+- `hpcctl` sin argumentos lo muestra si la salida es una terminal; si no, imprime la ayuda de
+  clap, así no ensucia scripts.
+- Medios bloques (`▀▄█`): 7 filas de píxeles en 4 líneas, píxeles cuadrados, color por columna.
+- Sin la sombra del diseño: en la terminal se desplaza un píxel entero (no un tercio), tapa los
+  espacios entre letras y la palabra deja de leerse.
+
 ### 2026-10-22 · v0.1 probada en WSL
 
 - `audit`, `audit --firmware`, `explain`, `capture --show` y el audit de la captura de prueba
@@ -202,8 +211,7 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ## Pendiente / próximos pasos
 
 1. v0.2: medición de latencia con eBPF (run-queue latency), estabilidad, intervalos de confianza.
-2. **Banner (pantalla 14 del diseño):** `hpcctl` sin argumentos muestra "HPCD" en pixel art con degradado violeta → cian y tips para empezar. Solo en terminal interactiva; en scripts, sin banner. 7 filas de píxeles → 4 líneas de terminal con medios bloques (`▀▄█`).
-3. Probar en una máquina física cuando haya una a mano.
-4. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
-5. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
-6. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
+2. Probar en una máquina física cuando haya una a mano.
+3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
+4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
+5. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.

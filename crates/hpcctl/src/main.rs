@@ -1,11 +1,13 @@
+mod banner;
 mod render;
 mod style;
 
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
-use clap::{Args, Parser, Subcommand};
+use clap::{Args, CommandFactory, Parser, Subcommand};
 use hpcd_core::Target;
 use hpcd_probe::Source;
 use hpcd_rules::{Category, Rule, registry};
@@ -22,7 +24,7 @@ struct Cli {
     rules: Option<PathBuf>,
 
     #[command(subcommand)]
-    command: Command,
+    command: Option<Command>,
 }
 
 #[derive(Subcommand)]
@@ -90,7 +92,15 @@ impl TargetArgs {
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
-    match cli.command {
+    let Some(command) = cli.command else {
+        if std::io::stdout().is_terminal() {
+            anstream::println!("{}", banner::render());
+        } else {
+            Cli::command().print_help()?;
+        }
+        return Ok(());
+    };
+    match command {
         Command::Audit {
             target,
             snapshot,
