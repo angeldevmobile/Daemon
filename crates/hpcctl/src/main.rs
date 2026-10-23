@@ -140,13 +140,12 @@ fn audit(
     let obs = hpcd_probe::observe(&source, &target)?;
     let findings = hpcd_rules::evaluate(&rules, &obs)?;
 
-    let mut details = Vec::new();
-    if !matches!(target, Target::Pid(_)) {
+    let qualifier = (!matches!(target, Target::Pid(_))).then(|| {
         let pids: Vec<String> = obs.pids.iter().map(u32::to_string).collect();
         let label = if pids.len() == 1 { "pid" } else { "pids" };
-        details.push(format!("({label} {})", pids.join(", ")));
-    }
-    details.push(format!("{} threads", obs.threads.len()));
+        format!("({label} {})", pids.join(", "))
+    });
+    let details = [render::plural(obs.threads.len(), "thread", "threads")];
 
     let title = if firmware {
         "hpcd firmware audit"
@@ -156,7 +155,14 @@ fn audit(
     let fix = format!("hpcctl fix {}", selector(&target));
     anstream::println!(
         "{}",
-        render::audit(title, &target.to_string(), &details, &findings, &fix)
+        render::audit(
+            title,
+            &target.to_string(),
+            qualifier.as_deref(),
+            &details,
+            &findings,
+            &fix
+        )
     );
     Ok(())
 }

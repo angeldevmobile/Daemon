@@ -41,6 +41,17 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/irq-on-hot-core
 
 ## Registro
 
+### 2026-10-22 · Primera prueba en vivo (WSL Ubuntu 24.04)
+
+- Rust instalado en WSL; `hpcctl` compila e instala en Linux sin cambios.
+- `audit --pid` lee procesos e hilos reales sin errores. 0 hallazgos, como se esperaba en una
+  VM de Hyper-V.
+- Corregido: el encabezado con `--pid` no tenía separador (`pid 1148 1 threads`), plural de
+  "thread", y la salida con 0 hallazgos ahora dice `✔ no issues found`.
+- Ojo al probar: `cargo run … &` deja en `$!` el pid de cargo, no el del programa. Lanzar el
+  binario directamente.
+- Pendiente de confirmar: `--unit` en WSL, que usa cgroups v1.
+
 ### 2026-10-22 · `hpcctl` como CLI independiente
 
 - Las reglas de `rules/` se meten en el binario al compilar (`crates/hpcd-rules/build.rs`).

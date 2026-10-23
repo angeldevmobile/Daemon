@@ -79,6 +79,7 @@ pub fn explain(rule: &Rule) -> String {
 pub fn audit(
     title: &str,
     subject: &str,
+    qualifier: Option<&str>,
     details: &[String],
     findings: &[Finding],
     fix_command: &str,
@@ -91,15 +92,18 @@ pub fn audit(
         paint(style::ACCENT, title),
         paint(style::DIM, " · ")
     );
+    if let Some(q) = qualifier {
+        header += &paint(style::DIM, format!(" {q}"));
+    }
     let mut rest: Vec<String> = details.to_vec();
-    let n = findings.len();
-    rest.push(format!(
-        "{n} {} matched",
-        if n == 1 { "rule" } else { "rules" }
-    ));
-    header += &paint(style::DIM, format!(" {}", rest.join(" · ")));
+    rest.push(plural(findings.len(), "rule", "rules") + " matched");
+    header += &paint(style::DIM, format!(" · {}", rest.join(" · ")));
 
     let mut out = vec![header, String::new()];
+    if findings.is_empty() {
+        out.push(paint(style::OK_BOLD, "✔ no issues found"));
+        return out.join("\n");
+    }
     let continuation = " ".repeat(1 + 6 + 2 + ID_WIDTH);
     for f in &findings {
         let mut lines = f.message.lines();
@@ -126,6 +130,10 @@ pub fn audit(
     out.push(String::new());
     out.push(footer);
     out.join("\n")
+}
+
+pub fn plural(n: usize, one: &str, many: &str) -> String {
+    format!("{n} {}", if n == 1 { one } else { many })
 }
 
 fn section(out: &mut Vec<String>, name: &str, lines: impl IntoIterator<Item = String>) {
@@ -184,10 +192,11 @@ mod tests {
                 true,
             ),
         ];
-        let details = ["(pid 4821)".to_string(), "8 threads".to_string()];
+        let details = ["8 threads".to_string()];
         let text = audit(
             "hpcd audit",
             "order-gateway.service",
+            Some("(pid 4821)"),
             &details,
             &findings,
             "hpcctl fix --unit order-gateway.service",
@@ -203,6 +212,22 @@ hpcd audit · order-gateway.service (pid 4821) · 8 threads · 4 rules matched
 
 2 fixable at runtime · hpcctl explain <rule> for details · hpcctl fix --unit order-gateway.service";
         assert_eq!(plain(&text), expected);
+    }
+
+    #[test]
+    fn audit_without_findings() {
+        let text = audit(
+            "hpcd audit",
+            "pid 1148",
+            None,
+            &["1 thread".to_string()],
+            &[],
+            "hpcctl fix --pid 1148",
+        );
+        assert_eq!(
+            plain(&text),
+            "hpcd audit · pid 1148 · 1 thread · 0 rules matched\n\n✔ no issues found"
+        );
     }
 
     #[test]
