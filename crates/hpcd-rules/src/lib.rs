@@ -7,7 +7,7 @@ use hpcd_core::Finding;
 use hpcd_probe::Observation;
 
 pub use checks::Hit;
-pub use loader::{LoadError, load_dir, load_file};
+pub use loader::{LoadError, load_dir, load_embedded, load_file};
 pub use rule::{Category, Detect, Explain, Fix, References, Rule};
 
 #[derive(Debug, thiserror::Error)]

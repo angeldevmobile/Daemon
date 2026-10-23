@@ -519,7 +519,11 @@ Requirements: Linux, Rust stable.
 $ git clone https://github.com/angeldevmobile/Daemon
 $ cd Daemon
 $ cargo build --release
+$ cargo install --path crates/hpcctl     # optional: puts hpcctl on your PATH
 ```
+
+The rule set is built into `hpcctl`. Use `--rules <dir>` (or `HPCD_RULES`) to try rules from
+a directory without rebuilding.
 
 Audit without the daemon (read-only, most checks need no root):
 

@@ -20,22 +20,27 @@ pub enum LoadError {
     Invalid { path: PathBuf, message: String },
 }
 
+mod embedded {
+    include!(concat!(env!("OUT_DIR"), "/embedded_rules.rs"));
+}
+
+pub fn load_embedded() -> Result<Vec<Rule>, LoadError> {
+    let rules = embedded::RULES
+        .iter()
+        .map(|(path, text)| parse(Path::new(path), text).map(|r| (PathBuf::from(path), r)))
+        .collect::<Result<_, _>>()?;
+    finish(rules)
+}
+
 pub fn load_dir(dir: &Path) -> Result<Vec<Rule>, LoadError> {
     let mut files = Vec::new();
     collect(dir, &mut files)?;
     files.sort();
-
-    let mut rules = Vec::with_capacity(files.len());
-    let mut seen = HashSet::new();
-    for path in files {
-        let rule = load_file(&path)?;
-        if !seen.insert(rule.id.clone()) {
-            return Err(invalid(&path, format!("duplicate rule id '{}'", rule.id)));
-        }
-        rules.push(rule);
-    }
-    rules.sort_by_key(|r| r.order);
-    Ok(rules)
+    let rules = files
+        .into_iter()
+        .map(|path| load_file(&path).map(|r| (path, r)))
+        .collect::<Result<_, _>>()?;
+    finish(rules)
 }
 
 pub fn load_file(path: &Path) -> Result<Rule, LoadError> {
@@ -43,12 +48,29 @@ pub fn load_file(path: &Path) -> Result<Rule, LoadError> {
         path: path.into(),
         source,
     })?;
-    let rule: Rule = toml::from_str(&text).map_err(|source| LoadError::Parse {
+    parse(path, &text)
+}
+
+fn parse(path: &Path, text: &str) -> Result<Rule, LoadError> {
+    let rule: Rule = toml::from_str(text).map_err(|source| LoadError::Parse {
         path: path.into(),
         source: Box::new(source),
     })?;
     validate(path, &rule)?;
     Ok(rule)
+}
+
+fn finish(loaded: Vec<(PathBuf, Rule)>) -> Result<Vec<Rule>, LoadError> {
+    let mut seen = HashSet::new();
+    let mut rules = Vec::with_capacity(loaded.len());
+    for (path, rule) in loaded {
+        if !seen.insert(rule.id.clone()) {
+            return Err(invalid(&path, format!("duplicate rule id '{}'", rule.id)));
+        }
+        rules.push(rule);
+    }
+    rules.sort_by_key(|r| r.order);
+    Ok(rules)
 }
 
 fn validate(path: &Path, rule: &Rule) -> Result<(), LoadError> {

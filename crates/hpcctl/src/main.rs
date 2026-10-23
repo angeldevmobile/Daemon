@@ -17,9 +17,9 @@ use hpcd_rules::{Category, Rule, registry};
     about = "Find out why your workload is jittery. Fix it. Prove it."
 )]
 struct Cli {
-    /// Directory containing the rule set.
-    #[arg(long, global = true, env = "HPCD_RULES", default_value = "rules")]
-    rules: PathBuf,
+    /// Load rules from this directory instead of the built-in set.
+    #[arg(long, global = true, env = "HPCD_RULES")]
+    rules: Option<PathBuf>,
 
     #[command(subcommand)]
     command: Command,
@@ -89,9 +89,15 @@ fn main() -> Result<()> {
             snapshot,
             firmware,
             sample,
-        } => audit(&cli.rules, target.into_target(), snapshot, firmware, sample)?,
+        } => audit(
+            cli.rules.as_deref(),
+            target.into_target(),
+            snapshot,
+            firmware,
+            sample,
+        )?,
         Command::Explain { rule } => {
-            let rules = load_rules(&cli.rules)?;
+            let rules = load_rules(cli.rules.as_deref())?;
             let rule = rules
                 .iter()
                 .find(|r| r.id == rule)
@@ -111,7 +117,7 @@ fn main() -> Result<()> {
 }
 
 fn audit(
-    rules_dir: &Path,
+    rules_dir: Option<&Path>,
     target: Target,
     snapshot: Option<PathBuf>,
     firmware: bool,
@@ -164,8 +170,12 @@ fn selector(target: &Target) -> String {
     }
 }
 
-fn load_rules(dir: &Path) -> Result<Vec<Rule>> {
-    hpcd_rules::load_dir(dir).with_context(|| format!("loading rules from {}", dir.display()))
+fn load_rules(dir: Option<&Path>) -> Result<Vec<Rule>> {
+    match dir {
+        Some(dir) => hpcd_rules::load_dir(dir)
+            .with_context(|| format!("loading rules from {}", dir.display())),
+        None => hpcd_rules::load_embedded().context("loading built-in rules"),
+    }
 }
 
 fn print_entries(entries: impl Iterator<Item = (&'static str, &'static str)> + Clone) {

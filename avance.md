@@ -16,6 +16,7 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | `hpcctl audit --snapshot` | ✅ |
 | `hpcctl audit --firmware` (pantalla 12) | 🟡 opción lista, sin reglas de firmware |
 | `hpcctl capture` | ❌ |
+| CLI instalable (`cargo install`), reglas dentro del binario | ✅ |
 | Reglas: `irq-on-hot-core` | ✅ con fixture |
 | Reglas restantes del set inicial | ❌ |
 | Reglas de conflictos (`irqbalance-active`, …) | ❌ |
@@ -31,7 +32,22 @@ cargo run --release -p jitter-demo -- --noise
 
 `audit` en vivo solo funciona en Linux. En Windows usar `--snapshot`.
 
+Como CLI instalada:
+
+```powershell
+cargo install --path crates/hpcctl
+hpcctl audit --unit order-gateway.service --snapshot rules/tests/irq-on-hot-core
+```
+
 ## Registro
+
+### 2026-10-22 · `hpcctl` como CLI independiente
+
+- Las reglas de `rules/` se meten en el binario al compilar (`crates/hpcd-rules/build.rs`).
+  `hpcctl` funciona desde cualquier carpeta sin configurar nada.
+- `--rules <dir>` o `HPCD_RULES` cargan reglas de una carpeta, para probar reglas nuevas
+  sin recompilar.
+- Test que verifica que las reglas del binario son las mismas que las de `rules/`.
 
 ### 2026-10-22 · Primer check real: `audit` funciona
 
