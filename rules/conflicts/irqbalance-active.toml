@@ -1,0 +1,26 @@
+id       = "irqbalance-active"
+title    = "irqbalance would undo IRQ affinity changes"
+category = "conflicts"
+severity = "warn"
+platform = "linux"
+goal     = ["latency", "stability"]
+order    = 0
+
+[detect]
+check       = "process_running"
+names       = ["irqbalance"]
+consequence = "would undo IRQ affinity changes"
+
+[explain]
+summary = """
+irqbalance periodically redistributes interrupts across cores for throughput, and will move IRQs
+back onto latency-critical cores after hpcd moves them away. Keep it running but ban those IRQs
+(--banirq) or cores (IRQBALANCE_BANNED_CPULIST) so both tools agree.
+"""
+evidence = ["/proc/*/comm"]
+
+[references]
+links = [
+    "https://github.com/Irqbalance/irqbalance",
+    "https://docs.kernel.org/core-api/irq/irq-affinity.html",
+]

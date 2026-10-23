@@ -5,7 +5,7 @@ use hpcd_core::Target;
 
 use crate::cpu::{self, CpuPower};
 use crate::interrupts::{self, IrqLine};
-use crate::tasks::{self, TaskStat};
+use crate::tasks::{self, Process, TaskStat};
 use crate::{CpuSet, ProbeError, Source, SysRoot};
 
 pub const HOT_CPU_SHARE: f64 = 0.05;
@@ -46,6 +46,8 @@ pub struct Observation {
     pub threads: Vec<Thread>,
     pub irqs: Vec<Irq>,
     pub cpus: BTreeMap<u32, CpuPower>,
+    pub processes: Vec<Process>,
+    pub tuned_profile: Option<String>,
 }
 
 impl Observation {
@@ -148,5 +150,11 @@ pub fn observe(source: &Source, target: &Target) -> Result<Observation, ProbeErr
         threads,
         irqs,
         cpus: cpu::read_cpus(&second),
+        processes: tasks::read_processes(&second),
+        tuned_profile: second
+            .read("/etc/tuned/active_profile")
+            .ok()
+            .map(|p| p.trim().to_string())
+            .filter(|p| !p.is_empty()),
     })
 }

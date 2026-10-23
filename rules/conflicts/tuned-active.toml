@@ -1,0 +1,21 @@
+id       = "tuned-active"
+title    = "tuned manages CPU and power settings on this host"
+category = "conflicts"
+severity = "warn"
+platform = "linux"
+goal     = ["latency", "stability"]
+order    = 0
+
+[detect]
+check = "tuned_profile"
+
+[explain]
+summary = """
+tuned applies a profile of kernel and power settings and re-applies it when they change. hpcd
+does not override settings the active profile manages; it reports them instead. Switching to a
+latency-oriented profile such as latency-performance may resolve several findings at once.
+"""
+evidence = ["/etc/tuned/active_profile", "/proc/*/comm"]
+
+[references]
+links = ["https://github.com/redhat-performance/tuned"]

@@ -67,6 +67,23 @@ fn only_expected_rules_match() {
     ids.sort();
     assert_eq!(
         ids,
-        ["deep-cstates", "irq-on-hot-core", "powersave-governor"]
+        [
+            "deep-cstates",
+            "irq-on-hot-core",
+            "irqbalance-active",
+            "powersave-governor"
+        ]
     );
+}
+
+#[test]
+fn irqbalance_active() {
+    let findings = audit_order_gateway();
+    let f = finding(&findings, "irqbalance-active");
+    assert_eq!(
+        f.message,
+        "irqbalance is running and would undo IRQ affinity changes"
+    );
+    assert_eq!(f.evidence[0].excerpt, "irqbalance (pid 812)");
+    assert!(!f.fixable_at_runtime);
 }

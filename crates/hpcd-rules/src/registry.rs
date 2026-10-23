@@ -32,6 +32,16 @@ pub const CHECKS: &[Check] = &[
         description: "Frequency governor on hot cores is one of a given list",
         run: checks::cpufreq_governor,
     },
+    Check {
+        name: "process_running",
+        description: "A process with one of the given names is running",
+        run: checks::process_running,
+    },
+    Check {
+        name: "tuned_profile",
+        description: "tuned is running with an active profile",
+        run: checks::tuned_profile,
+    },
 ];
 
 pub const ACTIONS: &[Action] = &[

@@ -1,7 +1,7 @@
 use std::collections::BTreeMap;
 
 use hpcd_core::Evidence;
-use hpcd_probe::{CpuSet, IdleState, Irq, Observation, Thread};
+use hpcd_probe::{CpuSet, IdleState, Irq, Observation, Process, Thread};
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
@@ -183,6 +183,64 @@ pub fn cpufreq_governor(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, S
     Ok(Some(Hit { message, evidence }))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ProcessRunning {
+    names: Vec<String>,
+    consequence: Option<String>,
+}
+
+pub fn process_running(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let p: ProcessRunning = params(&rule.detect.params)?;
+    let found: Vec<&Process> = obs
+        .processes
+        .iter()
+        .filter(|proc| p.names.contains(&proc.comm))
+        .collect();
+    let Some(first) = found.first() else {
+        return Ok(None);
+    };
+    let mut message = format!("{} is running", first.comm);
+    if let Some(c) = &p.consequence {
+        message += &format!(" and {c}");
+    }
+    let evidence = found
+        .iter()
+        .map(|proc| Evidence {
+            source: format!("/proc/{}/comm", proc.pid),
+            excerpt: format!("{} (pid {})", proc.comm, proc.pid),
+        })
+        .collect();
+    Ok(Some(Hit { message, evidence }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NoParams {}
+
+pub fn tuned_profile(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let NoParams {} = params(&rule.detect.params)?;
+    let tuned = obs.processes.iter().find(|p| p.comm == "tuned");
+    let (Some(tuned), Some(profile)) = (tuned, &obs.tuned_profile) else {
+        return Ok(None);
+    };
+    Ok(Some(Hit {
+        message: format!(
+            "tuned is running with profile '{profile}'; hpcd will not override settings it manages"
+        ),
+        evidence: vec![
+            Evidence {
+                source: "/etc/tuned/active_profile".into(),
+                excerpt: profile.clone(),
+            },
+            Evidence {
+                source: format!("/proc/{}/comm", tuned.pid),
+                excerpt: format!("tuned (pid {})", tuned.pid),
+            },
+        ],
+    }))
+}
+
 fn hot_threads_target(target: &str) -> Result<(), String> {
     if target == "hot_threads" {
         Ok(())
@@ -212,7 +270,68 @@ fn thousands(n: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::thousands;
+    use std::time::Duration;
+
+    use super::*;
+
+    fn rule(check: &str, params: &str) -> Rule {
+        toml::from_str(&format!(
+            "id = \"t\"\ntitle = \"t\"\ncategory = \"conflicts\"\nseverity = \"warn\"\n\
+             platform = \"linux\"\n[detect]\ncheck = \"{check}\"\n{params}\n\
+             [explain]\nsummary = \"s\"\n[references]\nlinks = [\"l\"]"
+        ))
+        .unwrap()
+    }
+
+    fn host(processes: &[(u32, &str)], tuned_profile: Option<&str>) -> Observation {
+        Observation {
+            interval: Duration::from_secs(1),
+            pids: vec![],
+            threads: vec![],
+            irqs: vec![],
+            cpus: Default::default(),
+            processes: processes
+                .iter()
+                .map(|(pid, comm)| Process {
+                    pid: *pid,
+                    comm: comm.to_string(),
+                })
+                .collect(),
+            tuned_profile: tuned_profile.map(String::from),
+        }
+    }
+
+    #[test]
+    fn tuned_needs_the_daemon_and_a_profile() {
+        let r = rule("tuned_profile", "");
+        let running = host(&[(900, "tuned")], Some("throughput-performance"));
+        let hit = tuned_profile(&r, &running).unwrap().unwrap();
+        assert!(hit.message.contains("'throughput-performance'"));
+        assert!(
+            tuned_profile(&r, &host(&[], Some("balanced")))
+                .unwrap()
+                .is_none()
+        );
+        assert!(
+            tuned_profile(&r, &host(&[(900, "tuned")], None))
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn process_running_ignores_other_processes() {
+        let r = rule("process_running", "names = [\"irqbalance\"]");
+        assert!(
+            process_running(&r, &host(&[(1, "systemd")], None))
+                .unwrap()
+                .is_none()
+        );
+        let hit = process_running(&r, &host(&[(812, "irqbalance")], None))
+            .unwrap()
+            .unwrap();
+        assert_eq!(hit.message, "irqbalance is running");
+    }
 
     #[test]
     fn groups_thousands() {

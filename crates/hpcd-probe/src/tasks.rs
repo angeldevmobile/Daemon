@@ -29,6 +29,27 @@ pub fn parse_stat(text: &str) -> Option<TaskStat> {
     })
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Process {
+    pub pid: u32,
+    pub comm: String,
+}
+
+pub fn read_processes(root: &SysRoot) -> Vec<Process> {
+    root.list("/proc")
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|entry| {
+            let pid = entry.parse().ok()?;
+            let comm = root.read(&format!("/proc/{pid}/comm")).ok()?;
+            Some(Process {
+                pid,
+                comm: comm.trim().to_string(),
+            })
+        })
+        .collect()
+}
+
 pub fn read_threads(root: &SysRoot, pid: u32) -> Result<Vec<TaskStat>, ProbeError> {
     let mut threads = Vec::new();
     for tid in root.list(&format!("/proc/{pid}/task"))? {

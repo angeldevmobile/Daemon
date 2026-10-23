@@ -12,7 +12,7 @@ pub use cpuset::CpuSet;
 pub use interrupts::IrqLine;
 pub use observe::{HOT_CPU_SHARE, Irq, Observation, Thread, observe};
 pub use source::{Source, SysRoot};
-pub use tasks::TaskStat;
+pub use tasks::{Process, TaskStat};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProbeError {

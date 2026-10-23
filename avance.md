@@ -19,7 +19,8 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | CLI instalable (`cargo install`), reglas dentro del binario | ✅ |
 | Reglas: `irq-on-hot-core`, `deep-cstates`, `powersave-governor` | ✅ con fixture |
 | Reglas restantes del set inicial (`thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing`) | ❌ |
-| Reglas de conflictos (`irqbalance-active`, …) | ❌ |
+| Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
+| Reglas de conflictos restantes (`systemd-cpuaffinity`, `cpuset-restricted`, `k8s-cpu-manager`) | ❌ |
 
 ## Cómo probar
 
@@ -40,6 +41,17 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-22 · Reglas de conflicto: `irqbalance-active` y `tuned-active`
+
+- `hpcd-probe` lee la lista de procesos (`/proc/*/comm`) y el perfil activo de tuned
+  (`/etc/tuned/active_profile`).
+- Check `process_running`: algún proceso con uno de los nombres dados está corriendo.
+- Check `tuned_profile`: tuned corre y tiene un perfil activo.
+- Las dos reglas son de solo detección (WARN, sin fix). Más adelante, en v0.3, se revisarán
+  antes de cada fix.
+- La captura `order-gateway` tiene ahora `irqbalance` corriendo (pid 812): el audit muestra 4
+  de las 8 filas de la pantalla 01.
 
 ### 2026-10-22 · Reglas de energía: `deep-cstates` y `powersave-governor`
 
@@ -130,9 +142,7 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ## Pendiente / próximos pasos
 
 1. `hpcctl capture` para generar capturas reales (`t0/`, `t1/`) desde Linux.
-2. Probar `audit` en vivo en WSL (Ubuntu no tiene Rust instalado todavía: `rustup`).
-3. Regla de conflicto `irqbalance-active`.
-4. Resto de reglas del set inicial: `thread-migration`, `smt-sibling-busy`,
+2. Resto de reglas del set inicial: `thread-migration`, `smt-sibling-busy`,
    `remote-numa-memory`, `isolcpus-missing`.
-5. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
-6. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
+3. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
+4. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
