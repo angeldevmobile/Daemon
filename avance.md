@@ -202,7 +202,8 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ## Pendiente / próximos pasos
 
 1. v0.2: medición de latencia con eBPF (run-queue latency), estabilidad, intervalos de confianza.
-2. Probar en una máquina física cuando haya una a mano.
-3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
-4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
-5. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
+2. **Banner (pantalla 14 del diseño):** `hpcctl` sin argumentos muestra "HPCD" en pixel art con degradado violeta → cian y tips para empezar. Solo en terminal interactiva; en scripts, sin banner. 7 filas de píxeles → 4 líneas de terminal con medios bloques (`▀▄█`).
+3. Probar en una máquina física cuando haya una a mano.
+4. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
+5. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
+6. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
