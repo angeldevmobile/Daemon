@@ -133,14 +133,13 @@ fn exe_pids(root: &SysRoot, exe: &Path) -> Result<Vec<u32>, ProbeError> {
         let Ok(pid) = entry.parse::<u32>() else {
             continue;
         };
-        let linked = std::fs::read_link(root.resolve(&format!("/proc/{pid}/exe")));
-        let matches = match linked {
-            Ok(path) => path == exe,
-            Err(_) => root
-                .read(&format!("/proc/{pid}/cmdline"))
-                .is_ok_and(|c| c.split('\0').next().is_some_and(|a| Path::new(a) == exe)),
+        let path = format!("/proc/{pid}/exe");
+        let matches = match std::fs::read_link(root.resolve(&path)) {
+            Ok(target) => target == exe,
+            Err(_) => root.read(&path).is_ok_and(|t| Path::new(t.trim()) == exe),
         };
         if matches {
+            root.record(&path, &exe.to_string_lossy());
             pids.push(pid);
         }
     }

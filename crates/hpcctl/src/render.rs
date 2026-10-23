@@ -1,4 +1,5 @@
 use hpcd_core::Finding;
+use hpcd_probe::Capture;
 use hpcd_rules::{Rule, registry};
 
 use crate::style::{self, paint, severity_badge};
@@ -132,6 +133,91 @@ pub fn audit(
     out.join("\n")
 }
 
+pub fn capture(
+    subject: &str,
+    qualifier: Option<&str>,
+    captured: &Capture,
+    audit_command: Option<&str>,
+) -> String {
+    let mut header = format!(
+        "{}{}{subject}",
+        paint(style::ACCENT, "hpcd capture"),
+        paint(style::DIM, " · ")
+    );
+    if let Some(q) = qualifier {
+        header += &paint(style::DIM, format!(" {q}"));
+    }
+    header += &paint(
+        style::DIM,
+        format!(" · 2 samples {}s apart", captured.interval.as_secs()),
+    );
+    let mut out = vec![header, String::new()];
+
+    if audit_command.is_none() {
+        let width = captured.files().map(|(_, p, _)| p.len()).max().unwrap_or(0);
+        for (t, path, size) in captured.files() {
+            out.push(format!(
+                "{INDENT}{}  {path:<width$}  {}",
+                paint(style::DIM, t),
+                paint(style::DIM, format!("{:>9}", bytes(size)))
+            ));
+        }
+        out.push(String::new());
+    }
+
+    for (t, files) in ["t0", "t1"].into_iter().zip(&captured.samples) {
+        let size = files.values().map(String::len).sum();
+        let word = if files.len() == 1 { "file" } else { "files" };
+        out.push(format!(
+            "{INDENT}{}  {:>4} {word:<5}  {:>9}",
+            paint(style::DIM, t),
+            files.len(),
+            bytes(size)
+        ));
+    }
+    let mut roots: Vec<&str> = captured
+        .files()
+        .map(|(_, path, _)| {
+            if path.starts_with("/etc/") {
+                path
+            } else {
+                path.split('/')
+                    .nth(1)
+                    .map_or(path, |r| &path[..r.len() + 1])
+            }
+        })
+        .collect();
+    roots.sort_unstable();
+    roots.dedup();
+    out.push(paint(
+        style::DIM,
+        format!(
+            "{INDENT}from {} · no memory or file contents",
+            roots.join(", ")
+        ),
+    ));
+    out.push(String::new());
+
+    out.push(match audit_command {
+        Some(cmd) => format!(
+            "{}{}{}",
+            paint(style::OK_BOLD, "✔ written"),
+            paint(style::DIM, " · "),
+            paint(style::ID, cmd)
+        ),
+        None => paint(style::DIM, "nothing written (--show)"),
+    });
+    out.join("\n")
+}
+
+fn bytes(n: usize) -> String {
+    if n < 1024 {
+        format!("{n} B")
+    } else {
+        format!("{:.1} KiB", n as f64 / 1024.0)
+    }
+}
+
 pub fn plural(n: usize, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
 }
@@ -228,6 +314,34 @@ hpcd audit · order-gateway.service (pid 4821) · 8 threads · 4 rules matched
             plain(&text),
             "hpcd audit · pid 1148 · 1 thread · 0 rules matched\n\n✔ no issues found"
         );
+    }
+
+    #[test]
+    fn capture_summary() {
+        let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rules/tests/order-gateway");
+        let target = hpcd_core::Target::Unit("order-gateway.service".into());
+        let captured =
+            hpcd_probe::capture(hpcd_probe::Source::snapshot(fixture).unwrap(), &target).unwrap();
+
+        let written = plain(&capture(
+            "order-gateway.service",
+            Some("(pid 4821)"),
+            &captured,
+            Some("hpcctl audit --unit order-gateway.service --snapshot gw"),
+        ));
+        assert!(written.starts_with(
+            "hpcd capture · order-gateway.service (pid 4821) · 2 samples 10s apart\n"
+        ));
+        assert!(written.contains("   from /proc, /sys · no memory or file contents\n"));
+        assert!(
+            written
+                .ends_with("✔ written · hpcctl audit --unit order-gateway.service --snapshot gw")
+        );
+        assert!(!written.contains("/proc/interrupts"));
+
+        let shown = plain(&capture("order-gateway.service", None, &captured, None));
+        assert!(shown.contains("   t1  /proc/interrupts  "));
+        assert!(shown.ends_with("nothing written (--show)"));
     }
 
     #[test]

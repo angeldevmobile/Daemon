@@ -1,3 +1,4 @@
+mod capture;
 mod cpu;
 mod cpuset;
 mod interrupts;
@@ -7,6 +8,7 @@ mod tasks;
 
 use std::path::PathBuf;
 
+pub use capture::{Capture, capture};
 pub use cpu::{CpuPower, IdleState};
 pub use cpuset::CpuSet;
 pub use interrupts::IrqLine;

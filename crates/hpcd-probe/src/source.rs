@@ -1,24 +1,35 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Deserialize;
 
 use crate::ProbeError;
 
+pub type Recorder = Arc<Mutex<BTreeMap<String, String>>>;
+
 #[derive(Debug, Clone)]
 pub struct SysRoot {
     root: PathBuf,
+    recorder: Option<Recorder>,
 }
 
 impl SysRoot {
     pub fn live() -> Self {
-        Self {
-            root: PathBuf::from("/"),
-        }
+        Self::at("/")
     }
 
     pub fn at(dir: impl Into<PathBuf>) -> Self {
-        Self { root: dir.into() }
+        Self {
+            root: dir.into(),
+            recorder: None,
+        }
+    }
+
+    fn recording(mut self, recorder: &Recorder) -> Self {
+        self.recorder = Some(recorder.clone());
+        self
     }
 
     pub fn resolve(&self, path: &str) -> PathBuf {
@@ -27,7 +38,19 @@ impl SysRoot {
 
     pub fn read(&self, path: &str) -> Result<String, ProbeError> {
         let full = self.resolve(path);
-        std::fs::read_to_string(&full).map_err(|source| ProbeError::Io { path: full, source })
+        let text = std::fs::read_to_string(&full)
+            .map_err(|source| ProbeError::Io { path: full, source })?;
+        self.record(path, &text);
+        Ok(text)
+    }
+
+    pub(crate) fn record(&self, path: &str, text: &str) {
+        if let Some(recorder) = &self.recorder {
+            let key = format!("/{}", path.trim_start_matches('/'));
+            if let Ok(mut files) = recorder.lock() {
+                files.insert(key, text.to_string());
+            }
+        }
     }
 
     pub fn exists(&self, path: &str) -> bool {
@@ -55,8 +78,17 @@ impl SysRoot {
 
 #[derive(Debug, Clone)]
 pub enum Source {
-    Live { interval: Duration },
-    Snapshot { dir: PathBuf, interval: Duration },
+    Live {
+        interval: Duration,
+    },
+    Snapshot {
+        dir: PathBuf,
+        interval: Duration,
+    },
+    Recording {
+        inner: Box<Source>,
+        samples: [Recorder; 2],
+    },
 }
 
 #[derive(Deserialize)]
@@ -86,9 +118,17 @@ impl Source {
         })
     }
 
+    pub fn recording(self) -> Self {
+        Source::Recording {
+            inner: Box::new(self),
+            samples: Default::default(),
+        }
+    }
+
     pub fn interval(&self) -> Duration {
         match self {
             Source::Live { interval } | Source::Snapshot { interval, .. } => *interval,
+            Source::Recording { inner, .. } => inner.interval(),
         }
     }
 
@@ -96,6 +136,7 @@ impl Source {
         match self {
             Source::Live { .. } => SysRoot::live(),
             Source::Snapshot { dir, .. } => SysRoot::at(dir.join("t0")),
+            Source::Recording { inner, samples } => inner.first().recording(&samples[0]),
         }
     }
 
@@ -106,7 +147,16 @@ impl Source {
                 SysRoot::live()
             }
             Source::Snapshot { dir, .. } => SysRoot::at(dir.join("t1")),
+            Source::Recording { inner, samples } => inner.second().recording(&samples[1]),
         }
+    }
+
+    pub(crate) fn recorded(&self) -> Option<[BTreeMap<String, String>; 2]> {
+        let Source::Recording { samples, .. } = self else {
+            return None;
+        };
+        let take = |r: &Recorder| r.lock().map(|m| m.clone()).unwrap_or_default();
+        Some([take(&samples[0]), take(&samples[1])])
     }
 }
 

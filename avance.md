@@ -15,7 +15,7 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | `hpcctl audit` (pantalla 01) | ✅ con 1 regla |
 | `hpcctl audit --snapshot` | ✅ |
 | `hpcctl audit --firmware` (pantalla 12) | 🟡 opción lista, sin reglas de firmware |
-| `hpcctl capture` | ❌ |
+| `hpcctl capture` (directorio, `--show`) | ✅ |
 | CLI instalable (`cargo install`), reglas dentro del binario | ✅ |
 | Reglas: `irq-on-hot-core`, `deep-cstates`, `powersave-governor` | ✅ con fixture |
 | Reglas restantes del set inicial (`thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing`) | ❌ |
@@ -41,6 +41,21 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-22 · `hpcctl capture`
+
+- `capture` ejecuta la misma observación que `audit`, pero registra cada archivo que lee, y
+  guarda exactamente esos archivos en `t0/` y `t1/` más `capture.toml`. Lo que `audit` necesita
+  siempre está en la captura.
+- `--show` lista cada archivo y su tamaño sin escribir nada.
+- No sobrescribe: falla si el directorio de salida existe y no está vacío.
+- Privacidad: con `--exe` ya no se lee el `cmdline` de todos los procesos (puede contener
+  contraseñas); solo se guarda la ruta del ejecutable de los procesos que coinciden.
+- Test de ida y vuelta: capturar la captura de prueba, escribirla, leerla y obtener lo mismo.
+- Formato: directorio. El archivo comprimido (`.tar.zst`) queda para más adelante.
+- Probado de punta a punta: captura de `systemd-journald.service` en WSL (40 archivos, ~7 KiB)
+  y audit de esa captura desde Windows con el mismo resultado que en vivo.
+- Columnas de la salida de `capture` alineadas.
 
 ### 2026-10-22 · Reglas de conflicto: `irqbalance-active` y `tuned-active`
 
@@ -141,8 +156,8 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. `hpcctl capture` para generar capturas reales (`t0/`, `t1/`) desde Linux.
-2. Resto de reglas del set inicial: `thread-migration`, `smt-sibling-busy`,
+1. Resto de reglas del set inicial: `thread-migration`, `smt-sibling-busy`,
    `remote-numa-memory`, `isolcpus-missing`.
+2. Reglas de firmware que no necesitan root (`smt-enabled`, `sub-numa-clustering`).
 3. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
 4. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.

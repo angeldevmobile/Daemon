@@ -47,8 +47,15 @@ enum Command {
     Capture {
         #[command(flatten)]
         target: TargetArgs,
+        /// Directory to write the capture to (must not exist or be empty).
         #[arg(short, long)]
         output: PathBuf,
+        /// Seconds between the two samples.
+        #[arg(long, default_value_t = 3)]
+        sample: u64,
+        /// List every file the capture would contain, without writing anything.
+        #[arg(long)]
+        show: bool,
     },
     /// List the checks rules can use.
     Checks,
@@ -104,10 +111,12 @@ fn main() -> Result<()> {
                 .with_context(|| format!("no rule named '{rule}'"))?;
             anstream::println!("{}", render::explain(rule));
         }
-        Command::Capture { target, output } => {
-            let _ = (target.into_target(), output);
-            bail!("capture is not implemented yet");
-        }
+        Command::Capture {
+            target,
+            output,
+            sample,
+            show,
+        } => capture(target.into_target(), &output, sample, show)?,
         Command::Checks => print_entries(registry::CHECKS.iter().map(|c| (c.name, c.description))),
         Command::Actions => {
             print_entries(registry::ACTIONS.iter().map(|a| (a.name, a.description)))
@@ -140,11 +149,7 @@ fn audit(
     let obs = hpcd_probe::observe(&source, &target)?;
     let findings = hpcd_rules::evaluate(&rules, &obs)?;
 
-    let qualifier = (!matches!(target, Target::Pid(_))).then(|| {
-        let pids: Vec<String> = obs.pids.iter().map(u32::to_string).collect();
-        let label = if pids.len() == 1 { "pid" } else { "pids" };
-        format!("({label} {})", pids.join(", "))
-    });
+    let qualifier = pid_qualifier(&target, &obs.pids);
     let details = [render::plural(obs.threads.len(), "thread", "threads")];
 
     let title = if firmware {
@@ -165,6 +170,41 @@ fn audit(
         )
     );
     Ok(())
+}
+
+fn capture(target: Target, output: &Path, sample: u64, show: bool) -> Result<()> {
+    if !cfg!(target_os = "linux") {
+        bail!("capture needs Linux");
+    }
+    let captured = hpcd_probe::capture(Source::live(Duration::from_secs(sample)), &target)?;
+    let qualifier = pid_qualifier(&target, &captured.observation.pids);
+    let audit = format!(
+        "hpcctl audit {} --snapshot {}",
+        selector(&target),
+        output.display()
+    );
+    if !show {
+        captured.write(output)?;
+    }
+    anstream::println!(
+        "{}",
+        render::capture(
+            &target.to_string(),
+            qualifier.as_deref(),
+            &captured,
+            (!show).then_some(audit.as_str()),
+        )
+    );
+    Ok(())
+}
+
+fn pid_qualifier(target: &Target, pids: &[u32]) -> Option<String> {
+    if matches!(target, Target::Pid(_)) {
+        return None;
+    }
+    let list: Vec<String> = pids.iter().map(u32::to_string).collect();
+    let label = if list.len() == 1 { "pid" } else { "pids" };
+    Some(format!("({label} {})", list.join(", ")))
 }
 
 fn selector(target: &Target) -> String {

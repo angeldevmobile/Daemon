@@ -222,12 +222,13 @@ which the default policy does not.
 **Audit offline.** Capture a machine once and audit it anywhere, without access to it:
 
 ```console
-customer$ hpcctl capture --unit api.service -o api-host.tar.zst
-you$      hpcctl audit --snapshot api-host.tar.zst
+customer$ hpcctl capture --unit api.service -o api-host
+you$      hpcctl audit --unit api.service --snapshot api-host
 ```
 
-Captures contain `/proc` and `/sys` data only, never memory or file contents, and
-`hpcctl capture --show` lists exactly what is included before anything is written.
+A capture is a directory with two samples of exactly the files the audit reads: `/proc` and
+`/sys` data plus tuned's active profile name, never memory, file contents or command lines.
+`hpcctl capture --show` lists every file it would include without writing anything.
 
 ## Targets
 
