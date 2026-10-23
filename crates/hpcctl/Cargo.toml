@@ -11,6 +11,7 @@ repository.workspace = true
 hpcd-core.workspace = true
 hpcd-probe.workspace = true
 hpcd-rules.workspace = true
+hpcd-measure.workspace = true
 anyhow.workspace = true
 clap.workspace = true
 anstream.workspace = true

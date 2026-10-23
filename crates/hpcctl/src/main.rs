@@ -9,6 +9,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use hpcd_core::Target;
+use hpcd_measure::Assertion;
 use hpcd_probe::Source;
 use hpcd_rules::{Category, Rule, registry};
 
@@ -58,6 +59,20 @@ enum Command {
         /// List every file the capture would contain, without writing anything.
         #[arg(long)]
         show: bool,
+    },
+    /// Measure run-queue latency with eBPF (needs root, or CAP_BPF and CAP_PERFMON).
+    Measure {
+        #[command(flatten)]
+        target: TargetArgs,
+        /// Number of measurement windows.
+        #[arg(long, default_value_t = 5)]
+        windows: u32,
+        /// Seconds per window.
+        #[arg(long, default_value_t = 20)]
+        window: u64,
+        /// Exit 1 unless the condition holds, e.g. "p99 < 200µs". Repeatable.
+        #[arg(long = "assert", value_name = "CONDITION")]
+        asserts: Vec<String>,
     },
     /// List the checks rules can use.
     Checks,
@@ -127,6 +142,12 @@ fn main() -> Result<()> {
             sample,
             show,
         } => capture(target.into_target(), &output, sample, show)?,
+        Command::Measure {
+            target,
+            windows,
+            window,
+            asserts,
+        } => measure(target.into_target(), windows, window, &asserts)?,
         Command::Checks => print_entries(registry::CHECKS.iter().map(|c| (c.name, c.description))),
         Command::Actions => {
             print_entries(registry::ACTIONS.iter().map(|a| (a.name, a.description)))
@@ -186,6 +207,80 @@ fn audit(
         )
     };
     anstream::println!("{text}");
+    Ok(())
+}
+
+fn measure(target: Target, windows: u32, window: u64, asserts: &[String]) -> Result<()> {
+    let asserts = asserts
+        .iter()
+        .map(|a| a.parse::<Assertion>().map_err(anyhow::Error::msg))
+        .collect::<Result<Vec<_>>>()?;
+    let duration = Duration::from_secs(window * u64::from(windows.max(1)));
+    let tty = std::io::stderr().is_terminal();
+    let m = hpcd_measure::measure(&target, duration, |done, total| {
+        if tty {
+            anstream::eprint!(
+                "\r{}",
+                style::paint(style::DIM, format!("measuring {done}/{total}s"))
+            );
+        }
+    })?;
+    if tty {
+        anstream::eprint!("\r\x1b[2K");
+    }
+    if m.wakeups() == 0 {
+        bail!("no wakeups observed for {target}; is it running?");
+    }
+
+    let mut quantiles: Vec<(String, f64)> = [("p50", 0.5), ("p99", 0.99), ("p99.9", 0.999)]
+        .map(|(l, q)| (l.to_string(), q))
+        .into();
+    for a in &asserts {
+        if !quantiles.iter().any(|(l, _)| *l == a.label) {
+            quantiles.push((a.label.clone(), a.quantile));
+        }
+    }
+    let rows: Vec<render::LatencyRow> = quantiles
+        .into_iter()
+        .filter(|(l, _)| asserts.is_empty() || asserts.iter().any(|a| a.label == *l))
+        .filter_map(|(label, q)| {
+            let estimate = hpcd_measure::estimate(&m.blocks, q)?;
+            let check = asserts
+                .iter()
+                .find(|a| a.label == label)
+                .map(|a| (a.limit_ns, a.holds(estimate.value)));
+            Some(render::LatencyRow {
+                label,
+                estimate,
+                check,
+            })
+        })
+        .collect();
+
+    let qualifier = pid_qualifier(&target, &m.pids);
+    let details = [
+        "run-queue latency".to_string(),
+        "eBPF".to_string(),
+        format!("{windows} × {window}s"),
+    ];
+    let summary = format!(
+        "{} · {}",
+        render::plural(m.wakeups() as usize, "wakeup", "wakeups"),
+        render::plural(m.threads, "thread", "threads"),
+    );
+    anstream::println!(
+        "{}",
+        render::measure(
+            &target.to_string(),
+            qualifier.as_deref(),
+            &details,
+            &summary,
+            &rows
+        )
+    );
+    if rows.iter().any(|r| r.check.is_some_and(|(_, ok)| !ok)) {
+        std::process::exit(1);
+    }
     Ok(())
 }
 

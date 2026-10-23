@@ -4,6 +4,8 @@ members = [
     "crates/hpcd-core",
     "crates/hpcd-probe",
     "crates/hpcd-rules",
+    "crates/hpcd-ebpf",
+    "crates/hpcd-measure",
     "crates/hpcctl",
     "bench/jitter-demo",
 ]
@@ -11,7 +13,7 @@ members = [
 [workspace.package]
 version = "0.0.1"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.98"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/angeldevmobile/Daemon"
 
@@ -19,15 +21,23 @@ repository = "https://github.com/angeldevmobile/Daemon"
 hpcd-core = { path = "crates/hpcd-core" }
 hpcd-probe = { path = "crates/hpcd-probe" }
 hpcd-rules = { path = "crates/hpcd-rules" }
+hpcd-ebpf = { path = "crates/hpcd-ebpf" }
+hpcd-measure = { path = "crates/hpcd-measure" }
 
 anstream = "1"
 anstyle = "1"
 anyhow = "1"
+aya = "=0.14.0"
+aya-build = "=0.2.1"
+aya-ebpf = "=0.2.1"
 clap = { version = "4", features = ["derive", "env"] }
+libc = "0.2"
 serde = { version = "1", features = ["derive"] }
 thiserror = "2"
 toml = "0.8"
 
 [profile.release]
-lto = "thin"
 codegen-units = 1
+
+[profile.release.package.hpcd-ebpf]
+debug = 2

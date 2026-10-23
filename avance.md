@@ -42,6 +42,23 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Registro
 
+### 2026-10-22 · v0.2 empieza: `hpcctl measure` con eBPF (aya)
+
+- Librería eBPF: **aya** (todo Rust). Versiones fijadas: `aya =0.14.0`, `aya-ebpf =0.2.1`,
+  `aya-build =0.2.1`. Hay forks con nombres parecidos (`aya-friday`, `profile-bee-aya`, …): solo
+  usar los de `aya-rs/aya`. `cargo audit`: 0 avisos en 75 dependencias.
+- `hpcd-ebpf`: programa en los tracepoints `sched_wakeup`, `sched_wakeup_new` y `sched_switch`.
+  Mide el tiempo desde que un hilo del target queda ejecutable hasta que corre, en un histograma
+  por CPU de 592 buckets (±3%). Los offsets de los campos se leen del `format` del kernel.
+- `hpcd-measure`: carga el programa, añade los hilos del target cada segundo, guarda un
+  histograma por segundo y calcula p50/p99/p99.9 con intervalo de confianza del 95% por
+  bootstrap sobre esos bloques.
+- `hpcctl measure --unit X [--windows 5 --window 20] [--assert "p99 < 200µs"]`, formato de la
+  pantalla 13; sale con código 1 si falla un `--assert`. El veredicto usa la estimación puntual.
+- Compilar en Linux necesita nightly + `bpf-linker`; `AYA_BUILD_SKIP=1` compila sin `measure`.
+  En Windows compila y pasa los tests, pero `measure` dice "needs Linux".
+- `rust-version` sube a 1.98 (lo pide `aya-build`). Se quita `lto` del perfil release.
+
 ### 2026-10-22 · Banner (pantalla 14)
 
 - Pantalla 14 en el diseño: "HPCD" en pixel art con degradado violeta → cian y tips.
@@ -210,7 +227,9 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. v0.2: medición de latencia con eBPF (run-queue latency), estabilidad, intervalos de confianza.
+1. v0.2: probar `measure` en WSL (primer build del programa eBPF). Después: chequeo de
+   estabilidad (pantalla 04), guardrails (throughput, CPU, energía, memoria), overhead propio,
+   detección de SMI y herramientas MCP de solo lectura.
 2. Probar en una máquina física cuando haya una a mano.
 3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
 4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.

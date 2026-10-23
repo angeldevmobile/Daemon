@@ -1,0 +1,18 @@
+[package]
+name = "hpcd-ebpf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "hpcd-ebpf"
+path = "src/main.rs"
+
+[target.'cfg(target_arch = "bpf")'.dependencies]
+aya-ebpf.workspace = true

@@ -1,4 +1,6 @@
+use anstyle::Style;
 use hpcd_core::Finding;
+use hpcd_measure::{Estimate, format_limit, format_ns, format_range};
 use hpcd_probe::{Capture, Machine};
 use hpcd_rules::{Rule, registry};
 
@@ -327,7 +329,85 @@ fn bytes(n: usize) -> String {
 }
 
 pub fn plural(n: usize, one: &str, many: &str) -> String {
-    format!("{n} {}", if n == 1 { one } else { many })
+    let digits = n.to_string();
+    let mut grouped = String::new();
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i).is_multiple_of(3) {
+            grouped.push(',');
+        }
+        grouped.push(c);
+    }
+    format!("{grouped} {}", if n == 1 { one } else { many })
+}
+
+pub struct LatencyRow {
+    pub label: String,
+    pub estimate: Estimate,
+    pub check: Option<(u64, bool)>,
+}
+
+pub fn measure(
+    subject: &str,
+    qualifier: Option<&str>,
+    details: &[String],
+    summary: &str,
+    rows: &[LatencyRow],
+) -> String {
+    let mut header = format!(
+        "{}{}{subject}",
+        paint(style::ACCENT, "hpcd measure"),
+        paint(style::DIM, " · ")
+    );
+    if let Some(q) = qualifier {
+        header += &paint(style::DIM, format!(" {q}"));
+    }
+    header += &paint(style::DIM, format!(" · {}", details.join(" · ")));
+
+    let mut out = vec![
+        header,
+        paint(style::DIM, format!("{INDENT}{summary}")),
+        String::new(),
+    ];
+    for row in rows {
+        let e = row.estimate;
+        let mut line = format!(
+            "  {:<5}{}  {}",
+            row.label,
+            paint(Style::new().bold(), format!("{:>9}", format_ns(e.value))),
+            paint(
+                style::DIM,
+                format!("{:<14}", format_range(e.low, e.high, e.value))
+            ),
+        );
+        if let Some((limit, ok)) = row.check {
+            line += &paint(
+                style::DIM,
+                format!("{:<16}", format!("budget {}", format_limit(limit))),
+            );
+            line += &if ok {
+                paint(style::OK_BOLD, "✔ pass")
+            } else {
+                paint(style::BAD.bold(), "✘ fail")
+            };
+        }
+        out.push(line.trim_end().to_string());
+    }
+    let checks: Vec<bool> = rows
+        .iter()
+        .filter_map(|r| r.check.map(|(_, ok)| ok))
+        .collect();
+    if !checks.is_empty() {
+        out.push(String::new());
+        out.push(if checks.iter().all(|ok| *ok) {
+            paint(style::OK_BOLD, "✔ all latency budgets met")
+        } else {
+            paint(style::BAD.bold(), "✘ tail latency budget exceeded")
+        });
+    }
+    out.join(
+        "
+",
+    )
 }
 
 fn section(out: &mut Vec<String>, name: &str, lines: impl IntoIterator<Item = String>) {
@@ -356,6 +436,40 @@ mod tests {
             evidence: vec![],
             fixable_at_runtime: fixable,
         }
+    }
+
+    #[test]
+    fn measure_matches_design() {
+        let row = |label: &str, value, low, high, limit, ok| LatencyRow {
+            label: label.into(),
+            estimate: Estimate { value, low, high },
+            check: Some((limit, ok)),
+        };
+        let rows = [
+            row("p99", 182_000, 176_000, 189_000, 200_000, true),
+            row("p99.9", 1_310_000, 1_180_000, 1_440_000, 1_000_000, false),
+        ];
+        let details = [
+            "run-queue latency".to_string(),
+            "eBPF".into(),
+            "5 × 20s".into(),
+        ];
+        let text = plain(&measure(
+            "api.service",
+            Some("(pid 4821)"),
+            &details,
+            "12,431 wakeups · 9 threads",
+            &rows,
+        ));
+        let expected = "hpcd measure · api.service (pid 4821) · run-queue latency · eBPF · 5 × 20s
+   12,431 wakeups · 9 threads
+
+  p99      182µs  [176–189]     budget 200µs    ✔ pass
+  p99.9   1.31ms  [1.18–1.44]   budget 1ms      ✘ fail
+
+✘ tail latency budget exceeded";
+        assert_eq!(text, expected);
+        assert_eq!(plural(12_431, "wakeup", "wakeups"), "12,431 wakeups");
     }
 
     #[test]

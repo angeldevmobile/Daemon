@@ -99,10 +99,10 @@ fn validate(path: &Path, rule: &Rule) -> Result<(), LoadError> {
             format!("unknown check '{}'", rule.detect.check),
         ));
     }
-    if let Some(fix) = &rule.fix {
-        if registry::action(&fix.action).is_none() {
-            return Err(invalid(path, format!("unknown action '{}'", fix.action)));
-        }
+    if let Some(fix) = &rule.fix
+        && registry::action(&fix.action).is_none()
+    {
+        return Err(invalid(path, format!("unknown action '{}'", fix.action)));
     }
     if rule.references.links.is_empty() {
         return Err(invalid(path, "at least one reference is required".into()));

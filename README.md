@@ -514,7 +514,15 @@ reported as unavailable.
 
 > Packages and signed releases are not available yet. Build from source.
 
-Requirements: Linux, Rust stable.
+Requirements: Linux, Rust stable 1.98+. Latency measurement also needs the nightly toolchain
+and `bpf-linker` to build its eBPF program:
+
+```console
+$ rustup toolchain install nightly --component rust-src
+$ cargo install bpf-linker
+```
+
+Without them, build with `AYA_BUILD_SKIP=1`: everything works except `hpcctl measure`.
 
 ```console
 $ git clone https://github.com/angeldevmobile/Daemon
