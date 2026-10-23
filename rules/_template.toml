@@ -1,0 +1,33 @@
+# Copy this file to rules/<category>/<id>.toml. The file name must match `id`.
+# See `hpcctl checks` and `hpcctl actions` for what [detect] and [fix] can use.
+
+id       = "my-rule"                # kebab-case, unique
+title    = "One line describing the problem"
+category = "irq"                    # irq | power | sched | memory | boot | conflicts | firmware
+severity = "medium"                 # info | warn | low | medium | high
+platform = "linux"
+goal     = ["latency"]              # latency and/or stability (benchmark mode)
+order    = 100                      # fixes with lower order are tried first
+
+[detect]
+check = "irq_affinity_overlaps"
+# check-specific parameters go here
+
+[explain]
+summary = """
+Why this matters, in two or three sentences.
+"""
+evidence = ["/proc/..."]            # files the finding is based on
+
+# Omit [fix] for detect-only rules (conflicts, firmware, boot proposals).
+[fix]
+action = "set_irq_affinity"
+risk   = "low"                      # low | medium | high
+reboot = false
+# action-specific parameters go here
+
+[fix.conflicts]
+# other-tool = "what to do so it does not undo this fix"
+
+[references]
+links = ["https://..."]             # at least one, explaining *why*

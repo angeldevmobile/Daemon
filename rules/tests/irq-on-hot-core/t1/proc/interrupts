@@ -1,0 +1,9 @@
+             CPU0       CPU1       CPU2       CPU3       CPU4       CPU5       CPU6       CPU7
+   0:         36          0          0          0          0          0          0          0   IO-APIC 2-edge timer
+ 120:      46000          0          0          0          0          0          0          0   IR-PCI-MSI 1572864-edge nvme0q0
+ 142:          0          0          0    1221400          0          0          0          0   IR-PCI-MSI 524288-edge eth0-rx-0
+ 143:          0          0          0    1119800          0          0          0          0   IR-PCI-MSI 524289-edge eth0-rx-1
+ 144:          0          0          0    1323100          0          0          0          0   IR-PCI-MSI 524290-edge eth0-rx-2
+ 145:          0          0          0    1018700          0          0          0          0   IR-PCI-MSI 524291-edge eth0-rx-3
+ LOC:     510000     510000     510000     510000     510000     510000     510000     510000   Local timer interrupts
+ ERR:          0

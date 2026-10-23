@@ -1,0 +1,32 @@
+id       = "irq-on-hot-core"
+title    = "Interrupts handled on a latency-critical core"
+category = "irq"
+severity = "high"
+platform = "linux"
+goal     = ["latency", "stability"]   # used by `fix` and by benchmark mode
+order    = 10            # fixes with lower order are tried first
+
+[detect]
+check        = "irq_affinity_overlaps"
+target       = "hot_threads"
+min_irq_rate = 1000      # IRQs per second on the hot core
+exclude      = ["timer", "LOC"]
+
+[explain]
+summary = """
+Hardware interrupts preempt whatever is running on the core that handles them.
+If that core runs a latency-critical thread, every interrupt adds jitter.
+"""
+evidence = ["/proc/interrupts", "/proc/irq/*/smp_affinity_list"]
+
+[fix]
+action = "set_irq_affinity"
+to     = "housekeeping_cores"   # cores with no hot threads, on the same NUMA node when possible
+risk   = "low"
+reboot = false
+
+[fix.conflicts]
+irqbalance = "Ban the affected IRQs or the hot cores in irqbalance, or it will undo this fix"
+
+[references]
+links = ["https://docs.kernel.org/core-api/irq/irq-affinity.html"]
