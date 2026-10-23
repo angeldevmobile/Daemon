@@ -1,0 +1,33 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/hpcd-core",
+    "crates/hpcd-probe",
+    "crates/hpcd-rules",
+    "crates/hpcctl",
+    "bench/jitter-demo",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/angeldevmobile/Daemon"
+
+[workspace.dependencies]
+hpcd-core = { path = "crates/hpcd-core" }
+hpcd-probe = { path = "crates/hpcd-probe" }
+hpcd-rules = { path = "crates/hpcd-rules" }
+
+anstream = "1"
+anstyle = "1"
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "0.8"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
