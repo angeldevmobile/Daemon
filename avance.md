@@ -12,13 +12,13 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | Formato de reglas, carga y validación | ✅ |
 | Estilo de terminal según `design/hpcctl-terminal.pen` | ✅ |
 | `hpcctl explain` (pantalla 02) | ✅ sin evidencia en vivo |
-| `hpcctl audit` (pantalla 01) | ✅ 5 de 8 filas |
+| `hpcctl audit` (pantalla 01) | ✅ las 8 filas |
 | `hpcctl audit --snapshot` | ✅ |
 | `hpcctl audit --firmware` (pantalla 12) | 🟡 con `smt-enabled`; faltan `sub-numa-clustering` y las que necesitan root |
 | `hpcctl capture` (directorio, `--show`) | ✅ |
 | CLI instalable (`cargo install`), reglas dentro del binario | ✅ |
-| Reglas: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `isolcpus-missing`, `smt-enabled` | ✅ con fixture |
-| Reglas restantes del set inicial (`thread-migration`, `smt-sibling-busy`, `remote-numa-memory`) | ❌ |
+| Set inicial completo: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing` | ✅ con fixture |
+| Firmware: `smt-enabled` | ✅ con fixture |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
 | Reglas de conflictos restantes (`systemd-cpuaffinity`, `cpuset-restricted`, `k8s-cpu-manager`) | ❌ |
 
@@ -41,6 +41,18 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-22 · `thread-migration`, `smt-sibling-busy` y `remote-numa-memory`
+
+- `hpcd-probe` lee las migraciones de cada hilo (`/proc/<pid>/task/<tid>/sched`), sus CPUs
+  permitidas (`status`), la ocupación de cada CPU (`/proc/stat` en las dos muestras), los
+  nodos NUMA y la memoria del proceso por nodo (`numa_maps`).
+- Privacidad: `numa_maps` lleva rutas de archivos mapeados; la captura guarda una versión
+  depurada con solo los conteos por nodo.
+- Checks `thread_migration`, `smt_sibling_busy`, `numa_remote_memory`. Acciones registradas
+  `pin_thread` y `move_tasks_off_cpu`. `remote-numa-memory` es solo reporte.
+- El audit de `order-gateway` muestra las 8 filas de la pantalla 01, con "5 fixable at runtime"
+  como en el diseño.
 
 ### 2026-10-22 · `isolcpus-missing` y `smt-enabled`
 
@@ -168,9 +180,8 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. Resto de reglas del set inicial: `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`.
-2. Regla de firmware `sub-numa-clustering`.
-3. Pie de `audit --firmware` con la propuesta por fabricante (pantalla 12) en lugar de "0 fixable at runtime".
-4. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
-5. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
-6. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
+1. Regla de firmware `sub-numa-clustering`.
+2. Pie de `audit --firmware` con la propuesta por fabricante (pantalla 12) en lugar de "0 fixable at runtime".
+3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
+4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
+5. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.

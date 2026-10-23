@@ -1,0 +1,29 @@
+id       = "smt-sibling-busy"
+title    = "Other work runs on the SMT sibling of a latency-critical core"
+category = "sched"
+severity = "medium"
+platform = "linux"
+goal     = ["latency", "stability"]
+order    = 50
+
+[detect]
+check    = "smt_sibling_busy"
+target   = "hot_threads"
+min_busy = 0.2           # share of the sibling's time spent busy
+
+[explain]
+summary = """
+SMT siblings share one physical core. Work on the sibling competes with the latency-critical
+thread for execution units and caches, so its timing depends on what the neighbour is doing.
+Moving that work elsewhere keeps the physical core for the hot thread.
+"""
+evidence = ["/proc/stat", "/sys/devices/system/cpu/cpu*/topology/thread_siblings_list"]
+
+[fix]
+action = "move_tasks_off_cpu"
+to     = "housekeeping_cores"
+risk   = "low"
+reboot = false
+
+[references]
+links = ["https://docs.kernel.org/admin-guide/hw-vuln/core-scheduling.html"]

@@ -33,6 +33,19 @@ pub fn read_cpus(root: &SysRoot) -> BTreeMap<u32, CpuInfo> {
         .collect()
 }
 
+pub fn parse_cpu_times(text: &str) -> BTreeMap<u32, (u64, u64)> {
+    text.lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let cpu = fields.next()?.strip_prefix("cpu")?.parse().ok()?;
+            let ticks: Vec<u64> = fields.filter_map(|f| f.parse().ok()).collect();
+            let total: u64 = ticks.iter().take(8).sum();
+            let idle = ticks.get(3)? + ticks.get(4).unwrap_or(&0);
+            Some((cpu, (total - idle, total)))
+        })
+        .collect()
+}
+
 pub fn read_isolated(root: &SysRoot) -> Option<CpuSet> {
     let text = root.read(&format!("{CPU_DIR}/isolated")).ok()?;
     Some(CpuSet::parse(&text).unwrap_or_default())

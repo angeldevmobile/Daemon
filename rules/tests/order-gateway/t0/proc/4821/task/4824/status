@@ -1,0 +1,5 @@
+Name:	gw
+Pid:	4824
+Cpus_allowed:	ff
+Cpus_allowed_list:	0-7
+voluntary_ctxt_switches:	100

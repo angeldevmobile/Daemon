@@ -73,7 +73,10 @@ fn only_expected_rules_match() {
             "irqbalance-active",
             "isolcpus-missing",
             "powersave-governor",
-            "smt-enabled"
+            "remote-numa-memory",
+            "smt-enabled",
+            "smt-sibling-busy",
+            "thread-migration"
         ]
     );
 }
@@ -107,4 +110,37 @@ fn smt_enabled() {
     let f = finding(&findings, "smt-enabled");
     assert_eq!(f.message, "SMT on · hot core 3 shares a core with cpu 7");
     assert_eq!(f.evidence.len(), 2);
+}
+
+#[test]
+fn thread_migration() {
+    let findings = audit_order_gateway();
+    let f = finding(&findings, "thread-migration");
+    assert_eq!(
+        f.message,
+        "Thread 4823 (gw-io) migrated 37 times in 10s (allowed cpus 0-7)"
+    );
+    assert!(f.fixable_at_runtime);
+}
+
+#[test]
+fn smt_sibling_busy() {
+    let findings = audit_order_gateway();
+    let f = finding(&findings, "smt-sibling-busy");
+    assert_eq!(
+        f.message,
+        "Core 7, SMT sibling of hot core 3, is 40% busy with other work"
+    );
+}
+
+#[test]
+fn remote_numa_memory() {
+    let findings = audit_order_gateway();
+    let f = finding(&findings, "remote-numa-memory");
+    assert_eq!(
+        f.message,
+        "41% of resident memory on node 1, hot thread 4823 runs on node 0"
+    );
+    assert_eq!(f.evidence[0].excerpt, "N0=590 N1=410 pages");
+    assert!(!f.fixable_at_runtime);
 }

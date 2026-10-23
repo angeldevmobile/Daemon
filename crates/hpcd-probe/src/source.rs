@@ -44,6 +44,18 @@ impl SysRoot {
         Ok(text)
     }
 
+    pub fn read_sanitized(
+        &self,
+        path: &str,
+        sanitize: fn(&str) -> String,
+    ) -> Result<String, ProbeError> {
+        let full = self.resolve(path);
+        let text = std::fs::read_to_string(&full)
+            .map_err(|source| ProbeError::Io { path: full, source })?;
+        self.record(path, &sanitize(&text));
+        Ok(text)
+    }
+
     pub(crate) fn record(&self, path: &str, text: &str) {
         if let Some(recorder) = &self.recorder {
             let key = format!("/{}", path.trim_start_matches('/'));

@@ -2,6 +2,7 @@ mod capture;
 mod cpu;
 mod cpuset;
 mod interrupts;
+mod numa;
 mod observe;
 mod source;
 mod tasks;

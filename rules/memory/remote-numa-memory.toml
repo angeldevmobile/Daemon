@@ -1,0 +1,26 @@
+id       = "remote-numa-memory"
+title    = "Memory lives on a NUMA node remote to the hot thread"
+category = "memory"
+severity = "low"
+platform = "linux"
+goal     = ["latency"]
+order    = 60
+
+[detect]
+check            = "numa_remote_memory"
+target           = "hot_threads"
+min_remote_share = 0.25
+
+[explain]
+summary = """
+On multi-socket machines each NUMA node has its own memory, and reaching another node's memory
+takes longer. A thread whose data sits on a remote node pays that cost on every cache miss.
+Re-pin the thread to the node that holds its memory, or migrate the pages with migratepages.
+"""
+evidence = ["/proc/*/numa_maps", "/sys/devices/system/node/node*/cpulist"]
+
+[references]
+links = [
+    "https://docs.kernel.org/admin-guide/mm/numa_memory_policy.html",
+    "https://man7.org/linux/man-pages/man8/migratepages.8.html",
+]

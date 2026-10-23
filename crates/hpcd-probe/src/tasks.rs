@@ -2,7 +2,7 @@ use std::path::Path;
 
 use hpcd_core::Target;
 
-use crate::{ProbeError, SysRoot};
+use crate::{CpuSet, ProbeError, SysRoot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TaskStat {
@@ -10,6 +10,8 @@ pub struct TaskStat {
     pub comm: String,
     pub cpu_ticks: u64,
     pub processor: u32,
+    pub migrations: Option<u64>,
+    pub allowed: Option<CpuSet>,
 }
 
 pub fn parse_stat(text: &str) -> Option<TaskStat> {
@@ -26,6 +28,15 @@ pub fn parse_stat(text: &str) -> Option<TaskStat> {
         comm,
         cpu_ticks: utime + stime,
         processor,
+        migrations: None,
+        allowed: None,
+    })
+}
+
+fn field<'a>(text: &'a str, name: &str, sep: char) -> Option<&'a str> {
+    text.lines().find_map(|l| {
+        let (key, value) = l.split_once(sep)?;
+        (key.trim() == name).then(|| value.trim())
     })
 }
 
@@ -57,10 +68,17 @@ pub fn read_threads(root: &SysRoot, pid: u32) -> Result<Vec<TaskStat>, ProbeErro
         let Ok(text) = root.read(&path) else {
             continue;
         };
-        let stat = parse_stat(&text).ok_or_else(|| ProbeError::Parse {
+        let mut stat = parse_stat(&text).ok_or_else(|| ProbeError::Parse {
             path: root.resolve(&path),
             message: "unexpected format".into(),
         })?;
+        let dir = format!("/proc/{pid}/task/{tid}");
+        if let Ok(sched) = root.read(&format!("{dir}/sched")) {
+            stat.migrations = field(&sched, "se.nr_migrations", ':').and_then(|v| v.parse().ok());
+        }
+        if let Ok(status) = root.read(&format!("{dir}/status")) {
+            stat.allowed = field(&status, "Cpus_allowed_list", ':').and_then(CpuSet::parse);
+        }
         threads.push(stat);
     }
     Ok(threads)

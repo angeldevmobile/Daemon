@@ -52,6 +52,21 @@ pub const CHECKS: &[Check] = &[
         description: "SMT is active and hot cores share a physical core",
         run: checks::smt_siblings,
     },
+    Check {
+        name: "thread_migration",
+        description: "Hot threads migrate between cores more often than a given rate",
+        run: checks::thread_migration,
+    },
+    Check {
+        name: "smt_sibling_busy",
+        description: "The SMT sibling of a hot core is busy with other work",
+        run: checks::smt_sibling_busy,
+    },
+    Check {
+        name: "numa_remote_memory",
+        description: "A large share of the target's memory is on a node remote to its hot threads",
+        run: checks::numa_remote_memory,
+    },
 ];
 
 pub const ACTIONS: &[Action] = &[
@@ -74,6 +89,16 @@ pub const ACTIONS: &[Action] = &[
         name: "propose_kernel_cmdline",
         description: "Propose kernel command line parameters; never applied",
         revert: "nothing is applied; remove the parameters and reboot to undo",
+    },
+    Action {
+        name: "pin_thread",
+        description: "Pin a thread to one core with sched_setaffinity",
+        revert: "restore the thread's previous CPU affinity",
+    },
+    Action {
+        name: "move_tasks_off_cpu",
+        description: "Move movable tasks off a core by narrowing their affinity",
+        revert: "restore each moved task's previous CPU affinity",
     },
 ];
 

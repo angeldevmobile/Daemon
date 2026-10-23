@@ -317,6 +317,157 @@ pub fn smt_siblings(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, Strin
     }))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ThreadMigration {
+    target: String,
+    min_rate: f64,
+}
+
+pub fn thread_migration(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let p: ThreadMigration = params(&rule.detect.params)?;
+    hot_threads_target(&p.target)?;
+    let secs = obs.interval.as_secs_f64();
+
+    let migrating: Vec<(&Thread, f64)> = obs
+        .hot_threads()
+        .filter_map(|t| Some((t, t.migrations_per_sec?)))
+        .filter(|(t, rate)| {
+            *rate >= p.min_rate && t.allowed.as_ref().is_none_or(|a| a.iter().count() > 1)
+        })
+        .collect();
+    let Some((thread, rate)) = migrating.first() else {
+        return Ok(None);
+    };
+    let allowed = thread
+        .allowed
+        .as_ref()
+        .map_or(String::new(), |a| format!(" (allowed cpus {a})"));
+    let mut message = format!(
+        "Thread {} ({}) migrated {} times in {}s{allowed}",
+        thread.tid,
+        thread.comm,
+        (rate * secs).round(),
+        secs.round()
+    );
+    if migrating.len() > 1 {
+        message += &format!(" · {} more threads", migrating.len() - 1);
+    }
+    let evidence = migrating
+        .iter()
+        .map(|(t, r)| Evidence {
+            source: format!("/proc/{}/task/{}/sched", t.pid, t.tid),
+            excerpt: format!("se.nr_migrations +{}", (r * secs).round()),
+        })
+        .collect();
+    Ok(Some(Hit { message, evidence }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SmtSiblingBusy {
+    target: String,
+    min_busy: f64,
+}
+
+pub fn smt_sibling_busy(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let p: SmtSiblingBusy = params(&rule.detect.params)?;
+    hot_threads_target(&p.target)?;
+    let own: CpuSet = obs.threads.iter().map(|t| t.core).collect();
+
+    let mut busy = Vec::new();
+    for core in obs.hot_cores().iter() {
+        let Some(siblings) = obs.cpus.get(&core).and_then(|c| c.siblings.as_ref()) else {
+            continue;
+        };
+        for sibling in siblings.iter().filter(|s| *s != core && !own.contains(*s)) {
+            let load = obs.cpu_busy.get(&sibling).copied().unwrap_or(0.0);
+            if load >= p.min_busy {
+                busy.push((sibling, core, load));
+            }
+        }
+    }
+    let Some((sibling, core, load)) = busy.first() else {
+        return Ok(None);
+    };
+    let mut message = format!(
+        "Core {sibling}, SMT sibling of hot core {core}, is {:.0}% busy with other work",
+        load * 100.0
+    );
+    if busy.len() > 1 {
+        message += &format!(" · {} more siblings", busy.len() - 1);
+    }
+    let evidence = busy
+        .iter()
+        .map(|(s, _, l)| Evidence {
+            source: "/proc/stat".into(),
+            excerpt: format!(
+                "cpu{s} {:.0}% busy over {}s",
+                l * 100.0,
+                obs.interval.as_secs()
+            ),
+        })
+        .collect();
+    Ok(Some(Hit { message, evidence }))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct NumaRemoteMemory {
+    target: String,
+    min_remote_share: f64,
+}
+
+pub fn numa_remote_memory(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let p: NumaRemoteMemory = params(&rule.detect.params)?;
+    hot_threads_target(&p.target)?;
+    let total: u64 = obs.memory_pages.values().sum();
+    if obs.numa_nodes.len() < 2 || total == 0 {
+        return Ok(None);
+    }
+
+    for thread in obs.hot_threads() {
+        let Some(local) = obs.node_of(thread.core) else {
+            continue;
+        };
+        let Some((&remote, &pages)) = obs
+            .memory_pages
+            .iter()
+            .filter(|(node, _)| **node != local)
+            .max_by_key(|(_, pages)| **pages)
+        else {
+            continue;
+        };
+        let share = pages as f64 / total as f64;
+        if share < p.min_remote_share {
+            continue;
+        }
+        let per_node: Vec<String> = obs
+            .memory_pages
+            .iter()
+            .map(|(n, pages)| format!("N{n}={pages}"))
+            .collect();
+        return Ok(Some(Hit {
+            message: format!(
+                "{:.0}% of resident memory on node {remote}, hot thread {} runs on node {local}",
+                share * 100.0,
+                thread.tid
+            ),
+            evidence: vec![
+                Evidence {
+                    source: format!("/proc/{}/numa_maps", thread.pid),
+                    excerpt: format!("{} pages", per_node.join(" ")),
+                },
+                Evidence {
+                    source: format!("/sys/devices/system/node/node{local}/cpulist"),
+                    excerpt: format!("core {} is on node {local}", thread.core),
+                },
+            ],
+        }));
+    }
+    Ok(None)
+}
+
 fn hot_threads_target(target: &str) -> Result<(), String> {
     if target == "hot_threads" {
         Ok(())
@@ -376,6 +527,9 @@ mod tests {
             tuned_profile: tuned_profile.map(String::from),
             isolated: None,
             smt_active: None,
+            cpu_busy: Default::default(),
+            numa_nodes: Default::default(),
+            memory_pages: Default::default(),
         }
     }
 
