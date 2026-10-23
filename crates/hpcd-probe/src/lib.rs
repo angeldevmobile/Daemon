@@ -1,0 +1,26 @@
+mod cpuset;
+mod interrupts;
+mod observe;
+mod source;
+mod tasks;
+
+use std::path::PathBuf;
+
+pub use cpuset::CpuSet;
+pub use interrupts::IrqLine;
+pub use observe::{HOT_CPU_SHARE, Irq, Observation, Thread, observe};
+pub use source::{Source, SysRoot};
+pub use tasks::TaskStat;
+
+#[derive(Debug, thiserror::Error)]
+pub enum ProbeError {
+    #[error("{path}: {source}")]
+    Io {
+        path: PathBuf,
+        source: std::io::Error,
+    },
+    #[error("{path}: {message}")]
+    Parse { path: PathBuf, message: String },
+    #[error("{0}")]
+    Target(String),
+}
