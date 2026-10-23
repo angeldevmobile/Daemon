@@ -241,6 +241,82 @@ pub fn tuned_profile(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, Stri
     }))
 }
 
+pub fn cpu_isolation(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let NoParams {} = params(&rule.detect.params)?;
+    let hot = obs.hot_cores();
+    let Some(isolated) = &obs.isolated else {
+        return Ok(None);
+    };
+    let exposed: CpuSet = hot.iter().filter(|c| !isolated.contains(*c)).collect();
+    if exposed.is_empty() {
+        return Ok(None);
+    }
+    let message = if isolated.is_empty() {
+        "No isolated cores (requires reboot, proposal only)".to_string()
+    } else {
+        format!(
+            "Hot {} not isolated, isolated: {isolated} (requires reboot, proposal only)",
+            cores_phrase(&exposed)
+        )
+    };
+    let shown = if isolated.is_empty() {
+        "(empty)".to_string()
+    } else {
+        isolated.to_string()
+    };
+    Ok(Some(Hit {
+        message,
+        evidence: vec![Evidence {
+            source: "/sys/devices/system/cpu/isolated".into(),
+            excerpt: format!("{shown} · hot {}", cores_phrase(&hot)),
+        }],
+    }))
+}
+
+pub fn smt_siblings(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let NoParams {} = params(&rule.detect.params)?;
+    if obs.smt_active != Some(true) {
+        return Ok(None);
+    }
+    let mut shared = Vec::new();
+    let mut evidence = Vec::new();
+    for core in obs.hot_cores().iter() {
+        let Some(siblings) = obs.cpus.get(&core).and_then(|c| c.siblings.as_ref()) else {
+            continue;
+        };
+        let others: CpuSet = siblings.iter().filter(|s| *s != core).collect();
+        if others.is_empty() {
+            continue;
+        }
+        let word = if others.iter().count() == 1 {
+            "cpu"
+        } else {
+            "cpus"
+        };
+        shared.push(format!(
+            "hot core {core} shares a core with {word} {others}"
+        ));
+        evidence.push(Evidence {
+            source: format!("/sys/devices/system/cpu/cpu{core}/topology/thread_siblings_list"),
+            excerpt: siblings.to_string(),
+        });
+    }
+    if shared.is_empty() {
+        return Ok(None);
+    }
+    evidence.insert(
+        0,
+        Evidence {
+            source: "/sys/devices/system/cpu/smt/active".into(),
+            excerpt: "1".into(),
+        },
+    );
+    Ok(Some(Hit {
+        message: format!("SMT on · {}", shared.join("; ")),
+        evidence,
+    }))
+}
+
 fn hot_threads_target(target: &str) -> Result<(), String> {
     if target == "hot_threads" {
         Ok(())
@@ -298,6 +374,8 @@ mod tests {
                 })
                 .collect(),
             tuned_profile: tuned_profile.map(String::from),
+            isolated: None,
+            smt_active: None,
         }
     }
 

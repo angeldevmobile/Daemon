@@ -1,0 +1,30 @@
+id       = "isolcpus-missing"
+title    = "Latency-critical cores are not isolated"
+category = "boot"
+severity = "info"
+platform = "linux"
+goal     = ["latency"]
+order    = 100
+
+[detect]
+check = "cpu_isolation"
+
+[explain]
+summary = """
+Isolated cores are kept out of general scheduling and, with nohz_full and rcu_nocbs, free of
+most timer ticks and RCU callbacks. That removes background jitter that runtime changes cannot
+reach. It is set on the kernel command line and needs a reboot, so hpcd only proposes it.
+"""
+evidence = ["/sys/devices/system/cpu/isolated"]
+
+[fix]
+action = "propose_kernel_cmdline"
+add    = ["isolcpus=managed_irq,domain", "nohz_full", "rcu_nocbs"]   # each set to the hot cores
+risk   = "medium"
+reboot = true
+
+[references]
+links = [
+    "https://docs.kernel.org/admin-guide/kernel-parameters.html",
+    "https://docs.kernel.org/timers/no_hz.html",
+]

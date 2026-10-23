@@ -1,0 +1,24 @@
+id       = "smt-enabled"
+title    = "SMT shares latency-critical cores with another thread"
+category = "firmware"
+severity = "low"
+platform = "linux"
+goal     = ["latency", "stability"]
+order    = 100
+
+[detect]
+check = "smt_siblings"
+
+[explain]
+summary = """
+With SMT (hyper-threading), two hardware threads share one physical core's execution units and
+caches, so work on the sibling slows the latency-critical thread unpredictably. Disable SMT in
+firmware, or keep the sibling of each hot core idle.
+"""
+evidence = [
+    "/sys/devices/system/cpu/smt/active",
+    "/sys/devices/system/cpu/cpu*/topology/thread_siblings_list",
+]
+
+[references]
+links = ["https://docs.kernel.org/admin-guide/hw-vuln/l1tf.html"]

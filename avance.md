@@ -12,13 +12,13 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | Formato de reglas, carga y validación | ✅ |
 | Estilo de terminal según `design/hpcctl-terminal.pen` | ✅ |
 | `hpcctl explain` (pantalla 02) | ✅ sin evidencia en vivo |
-| `hpcctl audit` (pantalla 01) | ✅ con 1 regla |
+| `hpcctl audit` (pantalla 01) | ✅ 5 de 8 filas |
 | `hpcctl audit --snapshot` | ✅ |
-| `hpcctl audit --firmware` (pantalla 12) | 🟡 opción lista, sin reglas de firmware |
+| `hpcctl audit --firmware` (pantalla 12) | 🟡 con `smt-enabled`; faltan `sub-numa-clustering` y las que necesitan root |
 | `hpcctl capture` (directorio, `--show`) | ✅ |
 | CLI instalable (`cargo install`), reglas dentro del binario | ✅ |
-| Reglas: `irq-on-hot-core`, `deep-cstates`, `powersave-governor` | ✅ con fixture |
-| Reglas restantes del set inicial (`thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing`) | ❌ |
+| Reglas: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `isolcpus-missing`, `smt-enabled` | ✅ con fixture |
+| Reglas restantes del set inicial (`thread-migration`, `smt-sibling-busy`, `remote-numa-memory`) | ❌ |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
 | Reglas de conflictos restantes (`systemd-cpuaffinity`, `cpuset-restricted`, `k8s-cpu-manager`) | ❌ |
 
@@ -41,6 +41,18 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-22 · `isolcpus-missing` y `smt-enabled`
+
+- `hpcd-probe` lee `/sys/devices/system/cpu/isolated`, `smt/active` y los hilos hermanos de
+  cada core (`topology/thread_siblings_list`). `CpuPower` pasa a llamarse `CpuInfo`.
+- Check `cpu_isolation`: algún core caliente no está aislado. Regla `isolcpus-missing` (boot,
+  INFO): propone `isolcpus`, `nohz_full` y `rcu_nocbs` con la acción `propose_kernel_cmdline`,
+  que nunca se aplica.
+- Check `smt_siblings`: SMT activo y un core caliente comparte núcleo físico. Regla `smt-enabled`
+  (firmware, LOW), solo con `audit --firmware`.
+- La captura `order-gateway` tiene SMT (cpu 3 y 7 hermanas) y ningún core aislado: el audit
+  muestra 5 filas de la pantalla 01, y `--firmware` la fila `smt-enabled` de la pantalla 12.
 
 ### 2026-10-22 · `hpcctl capture`
 
@@ -156,8 +168,9 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. Resto de reglas del set inicial: `thread-migration`, `smt-sibling-busy`,
-   `remote-numa-memory`, `isolcpus-missing`.
-2. Reglas de firmware que no necesitan root (`smt-enabled`, `sub-numa-clustering`).
-3. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
-4. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
+1. Resto de reglas del set inicial: `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`.
+2. Regla de firmware `sub-numa-clustering`.
+3. Pie de `audit --firmware` con la propuesta por fabricante (pantalla 12) en lugar de "0 fixable at runtime".
+4. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
+5. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
+6. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.

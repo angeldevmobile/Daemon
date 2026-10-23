@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::SysRoot;
+use crate::{CpuSet, SysRoot};
 
 const CPU_DIR: &str = "/sys/devices/system/cpu";
 
@@ -13,13 +13,14 @@ pub struct IdleState {
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct CpuPower {
+pub struct CpuInfo {
     pub governor: Option<String>,
     pub driver: Option<String>,
     pub idle_states: Vec<IdleState>,
+    pub siblings: Option<CpuSet>,
 }
 
-pub fn read_cpus(root: &SysRoot) -> BTreeMap<u32, CpuPower> {
+pub fn read_cpus(root: &SysRoot) -> BTreeMap<u32, CpuInfo> {
     let Ok(entries) = root.list(CPU_DIR) else {
         return BTreeMap::new();
     };
@@ -32,7 +33,17 @@ pub fn read_cpus(root: &SysRoot) -> BTreeMap<u32, CpuPower> {
         .collect()
 }
 
-fn read_cpu(root: &SysRoot, cpu: u32) -> CpuPower {
+pub fn read_isolated(root: &SysRoot) -> Option<CpuSet> {
+    let text = root.read(&format!("{CPU_DIR}/isolated")).ok()?;
+    Some(CpuSet::parse(&text).unwrap_or_default())
+}
+
+pub fn read_smt_active(root: &SysRoot) -> Option<bool> {
+    let text = root.read(&format!("{CPU_DIR}/smt/active")).ok()?;
+    Some(text.trim() == "1")
+}
+
+fn read_cpu(root: &SysRoot, cpu: u32) -> CpuInfo {
     let dir = format!("{CPU_DIR}/cpu{cpu}");
     let value = |file: &str| {
         root.read(&format!("{dir}/{file}"))
@@ -53,10 +64,11 @@ fn read_cpu(root: &SysRoot, cpu: u32) -> CpuPower {
             })
         })
         .collect();
-    CpuPower {
+    CpuInfo {
         governor: value("cpufreq/scaling_governor"),
         driver: value("cpufreq/scaling_driver"),
         idle_states,
+        siblings: value("topology/thread_siblings_list").and_then(|s| CpuSet::parse(&s)),
     }
 }
 

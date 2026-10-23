@@ -9,7 +9,7 @@ mod tasks;
 use std::path::PathBuf;
 
 pub use capture::{Capture, capture};
-pub use cpu::{CpuPower, IdleState};
+pub use cpu::{CpuInfo, IdleState};
 pub use cpuset::CpuSet;
 pub use interrupts::IrqLine;
 pub use observe::{HOT_CPU_SHARE, Irq, Observation, Thread, observe};

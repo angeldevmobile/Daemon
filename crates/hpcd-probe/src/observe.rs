@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use hpcd_core::Target;
 
-use crate::cpu::{self, CpuPower};
+use crate::cpu::{self, CpuInfo};
 use crate::interrupts::{self, IrqLine};
 use crate::tasks::{self, Process, TaskStat};
 use crate::{CpuSet, ProbeError, Source, SysRoot};
@@ -45,9 +45,11 @@ pub struct Observation {
     pub pids: Vec<u32>,
     pub threads: Vec<Thread>,
     pub irqs: Vec<Irq>,
-    pub cpus: BTreeMap<u32, CpuPower>,
+    pub cpus: BTreeMap<u32, CpuInfo>,
     pub processes: Vec<Process>,
     pub tuned_profile: Option<String>,
+    pub isolated: Option<CpuSet>,
+    pub smt_active: Option<bool>,
 }
 
 impl Observation {
@@ -150,6 +152,8 @@ pub fn observe(source: &Source, target: &Target) -> Result<Observation, ProbeErr
         threads,
         irqs,
         cpus: cpu::read_cpus(&second),
+        isolated: cpu::read_isolated(&second),
+        smt_active: cpu::read_smt_active(&second),
         processes: tasks::read_processes(&second),
         tuned_profile: second
             .read("/etc/tuned/active_profile")

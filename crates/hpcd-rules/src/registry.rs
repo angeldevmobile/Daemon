@@ -42,6 +42,16 @@ pub const CHECKS: &[Check] = &[
         description: "tuned is running with an active profile",
         run: checks::tuned_profile,
     },
+    Check {
+        name: "cpu_isolation",
+        description: "Hot cores are not in the isolated set (isolcpus)",
+        run: checks::cpu_isolation,
+    },
+    Check {
+        name: "smt_siblings",
+        description: "SMT is active and hot cores share a physical core",
+        run: checks::smt_siblings,
+    },
 ];
 
 pub const ACTIONS: &[Action] = &[
@@ -59,6 +69,11 @@ pub const ACTIONS: &[Action] = &[
         name: "set_cpufreq_governor",
         description: "Set the scaling governor on selected cores",
         revert: "restore each core's previous scaling_governor",
+    },
+    Action {
+        name: "propose_kernel_cmdline",
+        description: "Propose kernel command line parameters; never applied",
+        revert: "nothing is applied; remove the parameters and reboot to undo",
     },
 ];
 

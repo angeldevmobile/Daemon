@@ -71,7 +71,9 @@ fn only_expected_rules_match() {
             "deep-cstates",
             "irq-on-hot-core",
             "irqbalance-active",
-            "powersave-governor"
+            "isolcpus-missing",
+            "powersave-governor",
+            "smt-enabled"
         ]
     );
 }
@@ -86,4 +88,23 @@ fn irqbalance_active() {
     );
     assert_eq!(f.evidence[0].excerpt, "irqbalance (pid 812)");
     assert!(!f.fixable_at_runtime);
+}
+
+#[test]
+fn isolcpus_missing() {
+    let findings = audit_order_gateway();
+    let f = finding(&findings, "isolcpus-missing");
+    assert_eq!(
+        f.message,
+        "No isolated cores (requires reboot, proposal only)"
+    );
+    assert!(!f.fixable_at_runtime);
+}
+
+#[test]
+fn smt_enabled() {
+    let findings = audit_order_gateway();
+    let f = finding(&findings, "smt-enabled");
+    assert_eq!(f.message, "SMT on · hot core 3 shares a core with cpu 7");
+    assert_eq!(f.evidence.len(), 2);
 }
