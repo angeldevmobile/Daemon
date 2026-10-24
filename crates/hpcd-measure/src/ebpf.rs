@@ -138,12 +138,8 @@ pub fn run(
         std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
         let current = snapshot(&hist)?;
         let current_load = hpcd_probe::read_load(&root, &pids);
-        let (cpu_ticks, switches) = current_load.since(&previous_load);
         result.push(current.since(&previous));
-        load.push(Load {
-            cpu_ticks,
-            switches,
-        });
+        load.push(current_load.since(&previous_load));
         previous = current;
         previous_load = current_load;
         if !keep_going(&result, &load) {

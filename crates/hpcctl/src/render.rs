@@ -2,7 +2,9 @@ use anstyle::Style;
 use hpcd_core::Finding;
 use std::time::Duration;
 
-use hpcd_measure::{Drift, Estimate, Signal, Window, format_limit, format_ns, format_range};
+use hpcd_measure::{
+    Drift, Estimate, Guardrails, Signal, Window, format_limit, format_ns, format_range,
+};
 use hpcd_probe::{Capture, Machine};
 use hpcd_rules::{Rule, registry};
 
@@ -365,13 +367,17 @@ pub fn measure(
     qualifier: Option<&str>,
     details: &[String],
     summary: &str,
+    guardrails: Option<&Guardrails>,
     rows: &[LatencyRow],
 ) -> String {
     let mut out = vec![
         measure_header(subject, qualifier, details),
         paint(style::DIM, format!("{INDENT}{summary}")),
-        String::new(),
     ];
+    if let Some(g) = guardrails {
+        out.push(paint(style::DIM, format!("{INDENT}{}", guardrail_line(g))));
+    }
+    out.push(String::new());
     for row in rows {
         let e = row.estimate;
         let range = format_range(e.low, e.high, e.value);
@@ -489,6 +495,27 @@ pub fn unstable(
     out.join("\n")
 }
 
+fn guardrail_line(g: &Guardrails) -> String {
+    let mut parts = vec![format!("cpu {:.0}%", g.cpu)];
+    if let Some(w) = g.power_w {
+        parts.push(format!("power {w:.0}W"));
+    }
+    parts.push(format!("rss {}", kib(g.rss_kib)));
+    parts.push(format!("faults {}", rate(g.faults)));
+    if let Some(m) = g.numa_misses {
+        parts.push(format!("numa misses {}", rate(m)));
+    }
+    parts.join(" · ")
+}
+
+fn kib(n: u64) -> String {
+    match n {
+        0..1024 => format!("{n} KiB"),
+        1024..1_048_576 => format!("{:.0} MiB", n as f64 / 1024.0),
+        _ => format!("{:.1} GiB", n as f64 / 1_048_576.0),
+    }
+}
+
 fn rate(per_sec: f64) -> String {
     if per_sec < 1000.0 {
         format!("{per_sec:.0}/s")
@@ -559,10 +586,18 @@ mod tests {
             Some("(pid 4821)"),
             &details,
             "12,431 wakeups · 9 threads",
+            Some(&Guardrails {
+                cpu: 61.0,
+                power_w: Some(142.4),
+                rss_kib: 3_250_000,
+                faults: 120.0,
+                numa_misses: None,
+            }),
             &rows,
         ));
         let expected = "hpcd measure · api.service (pid 4821) · run-queue latency · eBPF · 5 × 20s
    12,431 wakeups · 9 threads
+   cpu 61% · power 142W · rss 3.1 GiB · faults 120/s
 
   p99      182µs  [176–189]     budget 200µs    ✔ pass
   p99.9   1.31ms  [1.18–1.44]   budget 1ms      ✘ fail

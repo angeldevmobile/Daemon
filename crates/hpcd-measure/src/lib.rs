@@ -1,6 +1,7 @@
 mod assert;
 #[cfg(all(target_os = "linux", hpcd_ebpf))]
 mod ebpf;
+mod guardrails;
 mod stability;
 mod stats;
 
@@ -9,10 +10,13 @@ use std::time::Duration;
 use hpcd_core::Target;
 
 pub use assert::{Assertion, Op};
-pub use stability::{Drift, Load, Signal, Window, drift, windows};
+pub use guardrails::{Guardrails, guardrails};
+pub use hpcd_probe::Load;
+pub use stability::{Drift, Signal, Window, drift, windows};
 pub use stats::{Estimate, Histogram, estimate, merge};
 
 pub const BLOCK: Duration = Duration::from_secs(1);
+const USER_HZ: f64 = 100.0;
 
 #[derive(Debug, thiserror::Error)]
 pub enum MeasureError {
@@ -77,6 +81,10 @@ pub struct Counters {
 impl Measurement {
     pub fn wakeups(&self) -> u64 {
         merge(&self.blocks).total()
+    }
+
+    pub fn guardrails(&self) -> Guardrails {
+        guardrails(&self.load)
     }
 
     pub fn windows(&self) -> Vec<Window> {

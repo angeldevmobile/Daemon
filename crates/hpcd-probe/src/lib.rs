@@ -2,6 +2,7 @@ mod capture;
 mod cpu;
 mod cpuset;
 mod interrupts;
+mod load;
 mod machine;
 mod numa;
 mod observe;
@@ -14,10 +15,11 @@ pub use capture::{Capture, capture};
 pub use cpu::{CpuInfo, IdleState};
 pub use cpuset::CpuSet;
 pub use interrupts::IrqLine;
+pub use load::{Load, LoadCounters, read_load};
 pub use machine::Machine;
 pub use observe::{HOT_CPU_SHARE, Irq, Observation, Thread, observe};
 pub use source::{Source, SysRoot};
-pub use tasks::{LoadCounters, Process, TaskStat, read_load, resolve_pids};
+pub use tasks::{Process, TaskStat, resolve_pids};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProbeError {

@@ -6,9 +6,10 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 
 **Versión en curso:** v0.2 — Measure (v0.1 — Audit ✅ terminada y probada en WSL)
 
-> **Dónde nos quedamos (2026-10-23):** `measure` tiene chequeo de estabilidad y `--wait-stable`,
-> probado en WSL. Lo siguiente en v0.2: guardrails, overhead propio, SMI y herramientas MCP de
-> solo lectura. `--metric` y `--bench` quedan para cuando exista `fix --auto`.
+> **Dónde nos quedamos (2026-10-23):** `measure` tiene chequeo de estabilidad, `--wait-stable` y
+> métricas de guardrails (cpu, power, rss, faults, numa misses), probado en WSL. Lo siguiente en
+> v0.2: overhead propio, SMI y herramientas MCP de solo lectura. Los límites de `policy.toml` se
+> aplican en v0.3 con `fix`. `--metric` y `--bench` quedan para cuando exista `fix --auto`.
 
 | Pieza | Estado |
 |---|---|
@@ -24,7 +25,8 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | Banner `hpcctl` sin argumentos (pantalla 14) | ✅ |
 | `hpcctl measure` con eBPF (aya), p50/p99/p99.9 con intervalo de confianza, `--assert` (pantalla 13) | ✅ probado en WSL |
 | Chequeo de estabilidad (pantalla 04) en `measure`, `--wait-stable` | ✅ probado en WSL |
-| Guardrails, overhead propio, SMI, herramientas MCP de solo lectura | ❌ siguiente |
+| Métricas de guardrails en `measure`: cpu, power (RAPL), rss, faults, numa misses | ✅ probado en WSL (sin RAPL ni NUMA) |
+| Overhead propio, SMI, herramientas MCP de solo lectura | ❌ siguiente |
 | Set inicial completo: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing` | ✅ con fixture |
 | Firmware sin root: `smt-enabled`, `sub-numa-clustering` | ✅ |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
@@ -60,6 +62,21 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-23 · Métricas de guardrails
+
+- La lectura de carga pasa a `hpcd-probe/src/load.rs` y ahora también lee page faults
+  (`minflt` + `majflt` de `/proc/<pid>/stat`), RSS (`VmRSS`), energía de paquete RAPL
+  (`/sys/class/powercap/intel-rapl:N/energy_uj`, con la vuelta del contador) y NUMA misses
+  (`numastat` de cada nodo, de todo el sistema y solo con más de un nodo).
+- `hpcd-measure::guardrails` promedia sobre los bloques medidos. `measure` lo muestra bajo el
+  resumen como la pantalla 03: `cpu 61% · power 142W · rss 3.1 GiB · faults 120/s`. Lo que la
+  máquina no expone no aparece.
+- Throughput sin `--metric` no se puede medir; queda para cuando exista `--metric`.
+- En v0.2 solo se registran. Los límites de `policy.toml` se aplican en v0.3, cuando `fix`
+  compare antes/después.
+- WSL no tiene RAPL ni NUMA: la línea muestra cpu, rss y faults. El test de RAPL solo corre en
+  Linux (Windows no permite `:` en nombres de archivo).
 
 ### 2026-10-23 · Chequeo de estabilidad (pantalla 04)
 
@@ -281,7 +298,7 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. v0.2, siguiente: guardrails (throughput, CPU, energía, memoria), overhead propio,
+1. v0.2, siguiente: overhead propio,
    detección de SMI y herramientas MCP de solo lectura.
 2. Probar en una máquina física cuando haya una a mano.
 3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).

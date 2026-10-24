@@ -1,16 +1,11 @@
-use crate::{BLOCK, Histogram, merge};
+use hpcd_probe::Load;
 
-const USER_HZ: f64 = 100.0;
+use crate::{BLOCK, Histogram, USER_HZ, merge};
+
 const MAX_CPU_POINTS: f64 = 10.0;
 const MAX_CPU_SHARE: f64 = 0.2;
 const MAX_RATE_CHANGE: f64 = 0.25;
 const MIN_RATE_DELTA: f64 = 50.0;
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct Load {
-    pub cpu_ticks: u64,
-    pub switches: u64,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Window {
@@ -161,6 +156,7 @@ mod tests {
             Load {
                 cpu_ticks: 50,
                 switches: 120,
+                ..Default::default()
             };
             4
         ];

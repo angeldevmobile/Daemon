@@ -343,6 +343,7 @@ fn measure(
             qualifier.as_deref(),
             &details,
             &summary,
+            Some(&m.guardrails()),
             &rows
         )
     );
