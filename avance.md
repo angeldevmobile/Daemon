@@ -4,14 +4,12 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 
 ## Estado actual
 
-**Versión en curso:** v0.2 — Measure (v0.1 — Audit ✅ terminada y probada en WSL)
+**Versión en curso:** v0.2 — Measure, completa salvo pruebas en máquina física (v0.1 — Audit ✅)
 
-> **Dónde nos quedamos (2026-10-23):** `measure` tiene chequeo de estabilidad, `--wait-stable` y
-> métricas de guardrails (cpu, power, rss, faults, numa misses) y su propio overhead, probado en
-> WSL. `audit --firmware` detecta SMIs (`smi-activity`), probado con la captura; falta probarlo
-> en una máquina física Intel. El costo de eBPF se revisó: en WSL casi todo es fijo de la VM.
-> Lo siguiente: herramientas MCP de solo lectura (último punto de v0.2). Los límites de `policy.toml` se
-> aplican en v0.3 con `fix`. `--metric` y `--bench` quedan para cuando exista `fix --auto`.
+> **Dónde nos quedamos (2026-10-23):** v0.2 tiene todas sus piezas: `measure` con estabilidad,
+> guardrails y overhead, detección de SMI y `hpcctl mcp` con las 8 herramientas de solo lectura.
+> Falta probar en una máquina física (SMI, RAPL, NUMA, costo de eBPF en el namespace raíz).
+> Lo siguiente es v0.3 — Fix: daemon, policy, snapshots, leases.
 
 | Pieza | Estado |
 |---|---|
@@ -31,7 +29,7 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | Overhead propio en `measure` (CPU de hpcctl + tiempo de eBPF, ns por evento, RSS) | ✅ probado en WSL |
 | Detección de SMI: regla `smi-activity` (firmware, HIGH) con `MSR_SMI_COUNT` | ✅ con fixture · sin probar en vivo (WSL no tiene `msr`) |
 | Costo de eBPF: sin traducción de PID en el namespace raíz | ✅ (en WSL no aplica) |
-| Herramientas MCP de solo lectura | ❌ siguiente |
+| `hpcctl mcp`: 8 herramientas de solo lectura, `--snapshot`, se niega a correr como root | ✅ probado en WSL |
 | Set inicial completo: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing` | ✅ con fixture |
 | Firmware sin root: `smt-enabled`, `sub-numa-clustering` | ✅ |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
@@ -67,6 +65,27 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-23 · `hpcctl mcp`: herramientas de solo lectura
+
+- Servidor MCP por stdio escrito a mano (JSON-RPC por líneas): `initialize` (negocia
+  `2025-06-18`, `2025-03-26`, `2024-11-05`), `ping`, `tools/list`, `tools/call`. Solo agrega
+  `serde_json`, que ya estaba en el lockfile. Se descartó el SDK oficial (`rmcp`) porque trae
+  tokio y muchas dependencias. `cargo audit`: 0 avisos en 75 dependencias.
+- Herramientas del README: `system_topology`, `process_profile`, `numa_placement`, `irq_map`,
+  `cpu_power_state`, `audit`, `explain_rule`, `measure`. Todas con `readOnlyHint`. Devuelven el
+  mismo texto que la CLI, sin colores.
+- `hpcd-probe`: `observe_host` (observación sin target), cambios de contexto por hilo,
+  frecuencias (`scaling_cur/min/max_freq`) y cachés (`cpu0/cache/index*`).
+- `audit` y `measure` de `main.rs` ahora devuelven texto (`audit_report`, `measure_report`); la
+  CLI lo imprime y sale con el código, MCP lo envía.
+- `hpcctl mcp` se niega a correr como root (README: "AI agents never get privileges"). Por eso
+  `measure` devuelve un error claro hasta que exista el daemon (v0.3). En MCP, `measure` usa
+  5 × 4s por defecto para no pasar los timeouts de los clientes.
+- `hpcctl mcp --snapshot <dir>`: las herramientas leen una captura. Sirve para probar en Windows.
+- Probado en WSL como usuario: topología con cachés, power, process_profile; `measure` da el
+  error de privilegios; como root se niega a arrancar.
+- Conectar: `claude mcp add hpcd -- hpcctl mcp`.
 
 ### 2026-10-23 · Costo del programa eBPF
 
@@ -345,7 +364,7 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. v0.2, siguiente: herramientas MCP de solo lectura.
+1. v0.3 — Fix: daemon, policy, snapshots, leases, fixes interactivos.
 2. Probar en una máquina física cuando haya una a mano.
 3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
 4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.

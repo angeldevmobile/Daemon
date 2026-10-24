@@ -530,7 +530,7 @@ fn overhead_line(o: &Overhead) -> String {
     )
 }
 
-fn kib(n: u64) -> String {
+pub fn kib(n: u64) -> String {
     match n {
         0..1024 => format!("{n} KiB"),
         1024..1_048_576 => format!("{:.0} MiB", n as f64 / 1024.0),
@@ -538,7 +538,7 @@ fn kib(n: u64) -> String {
     }
 }
 
-fn rate(per_sec: f64) -> String {
+pub fn rate(per_sec: f64) -> String {
     if per_sec < 1000.0 {
         format!("{per_sec:.0}/s")
     } else if per_sec < 1e6 {

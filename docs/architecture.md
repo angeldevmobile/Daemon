@@ -7,7 +7,7 @@
 | `hpcd-core` | Shared types: `Target`, `Finding`, `Severity`, later `Plan`, `Lease`, IPC messages | — |
 | `hpcd-probe` | Read-only collectors. Everything reads through `SysRoot`, so live systems and captures share one code path | `hpcd-core` |
 | `hpcd-rules` | Rule loading and validation, checks, registry of checks and actions | `hpcd-core`, `hpcd-probe` |
-| `hpcctl` | CLI; later the MCP server (`hpcctl mcp`) and the daemon client | all of the above |
+| `hpcctl` | CLI and read-only MCP server (`hpcctl mcp`); later the daemon client | all of the above |
 | `jitter-demo` | A periodic loop that shows jitter, for demos and end-to-end tests | — |
 
 Added in v0.3: `hpcd-fix` (actions, snapshots, revert) and `hpcd-daemon` (IPC, policy,

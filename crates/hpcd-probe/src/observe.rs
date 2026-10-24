@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use hpcd_core::Target;
 
-use crate::cpu::{self, CpuInfo};
+use crate::cpu::{self, Cache, CpuInfo};
 use crate::interrupts::{self, IrqLine};
 use crate::machine::{self, Machine};
 use crate::numa;
@@ -22,6 +22,7 @@ pub struct Thread {
     pub cpu_share: f64,
     pub core: u32,
     pub migrations_per_sec: Option<f64>,
+    pub switches_per_sec: Option<f64>,
     pub allowed: Option<CpuSet>,
 }
 
@@ -51,6 +52,7 @@ pub struct Observation {
     pub threads: Vec<Thread>,
     pub irqs: Vec<Irq>,
     pub cpus: BTreeMap<u32, CpuInfo>,
+    pub caches: Vec<Cache>,
     pub processes: Vec<Process>,
     pub tuned_profile: Option<String>,
     pub isolated: Option<CpuSet>,
@@ -120,8 +122,19 @@ fn sample(root: &SysRoot, pids: &[u32]) -> Result<Sample, ProbeError> {
 }
 
 pub fn observe(source: &Source, target: &Target) -> Result<Observation, ProbeError> {
+    observe_with(source, |root| tasks::resolve_pids(root, target))
+}
+
+pub fn observe_host(source: &Source) -> Result<Observation, ProbeError> {
+    observe_with(source, |_| Ok(Vec::new()))
+}
+
+fn observe_with(
+    source: &Source,
+    pids: impl FnOnce(&SysRoot) -> Result<Vec<u32>, ProbeError>,
+) -> Result<Observation, ProbeError> {
     let first = source.first();
-    let pids = tasks::resolve_pids(&first, target)?;
+    let pids = pids(&first)?;
     let before = sample(&first, &pids)?;
     let second = source.second();
     let after = sample(&second, &pids)?;
@@ -135,11 +148,13 @@ pub fn observe(source: &Source, target: &Target) -> Result<Observation, ProbeErr
         .filter_map(|(pid, t)| {
             let start = threads_before.get(&t.tid)?;
             let migrations = t.migrations.zip(start.migrations);
+            let switches = t.switches.zip(start.switches);
             Some(Thread {
                 pid,
                 tid: t.tid,
                 cpu_share: t.cpu_ticks.saturating_sub(start.cpu_ticks) as f64 / USER_HZ / secs,
                 migrations_per_sec: migrations.map(|(b, a)| b.saturating_sub(a) as f64 / secs),
+                switches_per_sec: switches.map(|(b, a)| b.saturating_sub(a) as f64 / secs),
                 allowed: t.allowed,
                 comm: t.comm,
                 core: t.processor,
@@ -188,6 +203,7 @@ pub fn observe(source: &Source, target: &Target) -> Result<Observation, ProbeErr
         threads,
         irqs,
         cpus: cpu::read_cpus(&second),
+        caches: cpu::read_caches(&second),
         isolated: cpu::read_isolated(&second),
         smt_active: cpu::read_smt_active(&second),
         cpu_busy: after

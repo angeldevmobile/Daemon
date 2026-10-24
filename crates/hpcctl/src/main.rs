@@ -1,4 +1,6 @@
 mod banner;
+mod inspect;
+mod mcp;
 mod render;
 mod style;
 
@@ -79,6 +81,15 @@ enum Command {
         #[arg(long, value_name = "DURATION", value_parser = parse_duration)]
         wait_stable: Option<Duration>,
     },
+    /// Serve read-only tools to AI agents over MCP (stdio). Refuses to run as root.
+    Mcp {
+        /// Read a capture directory instead of the live system.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+        /// Seconds to sample the live system for rates and CPU usage.
+        #[arg(long, default_value_t = 3)]
+        sample: u64,
+    },
     /// List the checks rules can use.
     Checks,
     /// List the actions rules can use.
@@ -126,13 +137,23 @@ fn main() -> Result<()> {
             snapshot,
             firmware,
             sample,
-        } => audit(
-            cli.rules.as_deref(),
-            target.into_target(),
-            snapshot,
-            firmware,
-            sample,
-        )?,
+        } => {
+            let source = match snapshot {
+                Some(dir) => Source::snapshot(&dir)
+                    .with_context(|| format!("opening capture {}", dir.display()))?,
+                None if !cfg!(target_os = "linux") => {
+                    bail!("live audit needs Linux; use --snapshot <dir> to audit a capture")
+                }
+                None => Source::live(Duration::from_secs(sample)),
+            };
+            let text = audit_report(
+                cli.rules.as_deref(),
+                &target.into_target(),
+                source,
+                firmware,
+            )?;
+            anstream::println!("{text}");
+        }
         Command::Explain { rule } => {
             let rules = load_rules(cli.rules.as_deref())?;
             let rule = rules
@@ -153,7 +174,26 @@ fn main() -> Result<()> {
             window,
             asserts,
             wait_stable,
-        } => measure(target.into_target(), windows, window, wait_stable, &asserts)?,
+        } => {
+            let tty = std::io::stderr().is_terminal();
+            let (text, code) = measure_report(
+                target.into_target(),
+                windows,
+                window,
+                wait_stable,
+                &asserts,
+                tty,
+            )?;
+            anstream::println!("{text}");
+            if code != 0 {
+                std::process::exit(code);
+            }
+        }
+        Command::Mcp { snapshot, sample } => mcp::serve(mcp::Server {
+            rules: cli.rules,
+            snapshot,
+            sample: Duration::from_secs(sample),
+        })?,
         Command::Checks => print_entries(registry::CHECKS.iter().map(|c| (c.name, c.description))),
         Command::Actions => {
             print_entries(registry::ACTIONS.iter().map(|a| (a.name, a.description)))
@@ -162,28 +202,17 @@ fn main() -> Result<()> {
     Ok(())
 }
 
-fn audit(
+fn audit_report(
     rules_dir: Option<&Path>,
-    target: Target,
-    snapshot: Option<PathBuf>,
+    target: &Target,
+    source: Source,
     firmware: bool,
-    sample: u64,
-) -> Result<()> {
+) -> Result<String> {
     let rules: Vec<Rule> = load_rules(rules_dir)?
         .into_iter()
         .filter(|r| (r.category == Category::Firmware) == firmware)
         .collect();
-
-    let source = match snapshot {
-        Some(dir) => {
-            Source::snapshot(&dir).with_context(|| format!("opening capture {}", dir.display()))?
-        }
-        None if !cfg!(target_os = "linux") => {
-            bail!("live audit needs Linux; use --snapshot <dir> to audit a capture")
-        }
-        None => Source::live(Duration::from_secs(sample)),
-    };
-    let obs = hpcd_probe::observe(&source, &target)?;
+    let obs = hpcd_probe::observe(&source, target)?;
     let findings = hpcd_rules::evaluate(&rules, &obs)?;
 
     let text = if firmware {
@@ -202,27 +231,28 @@ fn audit(
             render::Footer::Text(render::firmware_proposal(&obs.machine, &matched)),
         )
     } else {
-        let fix = format!("hpcctl fix {}", selector(&target));
+        let fix = format!("hpcctl fix {}", selector(target));
         render::audit(
             "hpcd audit",
             &target.to_string(),
-            pid_qualifier(&target, &obs.pids).as_deref(),
+            pid_qualifier(target, &obs.pids).as_deref(),
             &[render::plural(obs.threads.len(), "thread", "threads")],
             &findings,
             render::Footer::Fix(&fix),
         )
     };
-    anstream::println!("{text}");
+    let mut text = text;
     if firmware && obs.smis.is_none() {
-        anstream::println!(
-            "{}",
+        text += &format!(
+            "
+{}",
             style::paint(
                 style::DIM,
                 "smi-activity not checked: needs root and the msr module (Intel only)"
             )
         );
     }
-    Ok(())
+    Ok(text)
 }
 
 fn parse_duration(s: &str) -> std::result::Result<Duration, String> {
@@ -239,13 +269,14 @@ fn parse_duration(s: &str) -> std::result::Result<Duration, String> {
     Ok(Duration::from_secs(secs))
 }
 
-fn measure(
+fn measure_report(
     target: Target,
     windows: u32,
     window: u64,
     wait_stable: Option<Duration>,
     asserts: &[String],
-) -> Result<()> {
+    tty: bool,
+) -> Result<(String, i32)> {
     let asserts = asserts
         .iter()
         .map(|a| a.parse::<Assertion>().map_err(anyhow::Error::msg))
@@ -256,7 +287,6 @@ fn measure(
         wait_stable,
     };
     let total = plan.needed();
-    let tty = std::io::stderr().is_terminal();
     let m = hpcd_measure::measure(&target, plan, |done| {
         if tty {
             let text = if done > total {
@@ -294,18 +324,15 @@ fn measure(
     let measured = m.windows();
     let drift = hpcd_measure::drift(&measured);
     if !drift.is_empty() {
-        anstream::println!(
-            "{}",
-            render::unstable(
-                &target.to_string(),
-                qualifier.as_deref(),
-                &details,
-                &measured,
-                &drift,
-                wait_stable,
-            )
+        let text = render::unstable(
+            &target.to_string(),
+            qualifier.as_deref(),
+            &details,
+            &measured,
+            &drift,
+            wait_stable,
         );
-        std::process::exit(2);
+        return Ok((text, 2));
     }
 
     let mut quantiles: Vec<(String, f64)> = [("p50", 0.5), ("p99", 0.99), ("p99.9", 0.999)]
@@ -345,22 +372,17 @@ fn measure(
         }
         summary += " ✔";
     }
-    anstream::println!(
-        "{}",
-        render::measure(
-            &target.to_string(),
-            qualifier.as_deref(),
-            &details,
-            &summary,
-            Some(&m.guardrails()),
-            Some(&m.overhead),
-            &rows
-        )
+    let text = render::measure(
+        &target.to_string(),
+        qualifier.as_deref(),
+        &details,
+        &summary,
+        Some(&m.guardrails()),
+        Some(&m.overhead),
+        &rows,
     );
-    if rows.iter().any(|r| r.check.is_some_and(|(_, ok)| !ok)) {
-        std::process::exit(1);
-    }
-    Ok(())
+    let failed = rows.iter().any(|r| r.check.is_some_and(|(_, ok)| !ok));
+    Ok((text, i32::from(failed)))
 }
 
 fn capture(target: Target, output: &Path, sample: u64, show: bool) -> Result<()> {

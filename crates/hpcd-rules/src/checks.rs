@@ -597,6 +597,7 @@ mod tests {
             threads: vec![],
             irqs: vec![],
             cpus: Default::default(),
+            caches: vec![],
             processes: processes
                 .iter()
                 .map(|(pid, comm)| Process {

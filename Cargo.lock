@@ -296,6 +296,7 @@ dependencies = [
  "hpcd-measure",
  "hpcd-probe",
  "hpcd-rules",
+ "serde_json",
 ]
 
 [[package]]

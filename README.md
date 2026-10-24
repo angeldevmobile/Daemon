@@ -489,6 +489,10 @@ Actions (require approval or policy):
 $ claude mcp add hpcd -- hpcctl mcp
 ```
 
+`hpcctl mcp` refuses to run as root. Until the daemon exists (v0.3), `measure` is not
+available to agents, since eBPF needs privileges. `hpcctl mcp --snapshot <dir>` serves a
+capture instead of the live system.
+
 Then ask: *"order-gateway.service has p99 spikes. Find out why and fix what you can safely."*
 
 ### Approval
@@ -577,7 +581,7 @@ hpcd/
 │  ├─ hpcd-core/     shared types: Target, Finding, Plan, Lease, IPC messages
 │  ├─ hpcd-probe/    read-only collectors for /proc, /sys and eBPF
 │  ├─ hpcd-rules/    rule loader, validation and the check/action registry
-│  └─ hpcctl/        client binary: CLI (later: MCP server)
+│  └─ hpcctl/        client binary: CLI and MCP server
 ├─ rules/
 │  ├─ _template.toml
 │  ├─ irq/  power/  sched/  memory/  boot/  conflicts/  firmware/

@@ -11,6 +11,7 @@ pub struct TaskStat {
     pub cpu_ticks: u64,
     pub processor: u32,
     pub migrations: Option<u64>,
+    pub switches: Option<u64>,
     pub allowed: Option<CpuSet>,
 }
 
@@ -29,6 +30,7 @@ pub fn parse_stat(text: &str) -> Option<TaskStat> {
         cpu_ticks: utime + stime,
         processor,
         migrations: None,
+        switches: None,
         allowed: None,
     })
 }
@@ -78,6 +80,10 @@ pub fn read_threads(root: &SysRoot, pid: u32) -> Result<Vec<TaskStat>, ProbeErro
         }
         if let Ok(status) = root.read(&format!("{dir}/status")) {
             stat.allowed = field(&status, "Cpus_allowed_list", ':').and_then(CpuSet::parse);
+            let count = |name| field(&status, name, ':').and_then(|v| v.parse::<u64>().ok());
+            stat.switches = count("voluntary_ctxt_switches")
+                .zip(count("nonvoluntary_ctxt_switches"))
+                .map(|(v, nv)| v + nv);
         }
         threads.push(stat);
     }
