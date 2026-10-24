@@ -6,9 +6,18 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 
 **Versión en curso:** v0.3 — Fix (v0.2 — Measure ✅, v0.1 — Audit ✅)
 
-> **Dónde nos quedamos (2026-10-23):** v0.3 partes 1–3 hechas: `hpcd-fix`, `fix --dry-run` y el
-> daemon `hpcd` con leases (`fix --rule`, `status`, `commit`, `revert`), probado en WSL. Lo
-> siguiente es la parte 4: `fix --interactive`, que mide antes y después de cada fix.
+> **Dónde nos quedamos (2026-10-23, fin del día):** v0.3 partes 1–3 hechas y probadas en WSL:
+> `hpcd-fix`, `fix --dry-run` y el daemon `hpcd` con leases (`fix --rule`, `status`, `commit`,
+> `revert`). El ciclo completo funcionó a mano: lease de 30s abierto, visible en `status`,
+> vencido y revertido solo. Pendiente: subir el commit de la parte 3 si no se hizo.
+>
+> **Mañana:** parte 4, `hpcctl fix --interactive` (pantalla 03): baseline con `measure`, aplicar
+> cada fix por el daemon, medir de nuevo, quedarse solo con lo que mejora más allá del ruido
+> (`min_effect` 5%) sin romper guardrails, y revertir lo demás. Ojo: `measure` necesita
+> privilegios, así que la medición probablemente tenga que hacerla el daemon.
+>
+> Al probar el daemon a mano: dejar un `sleep 1` entre arrancar `hpcd` y usar `hpcctl`, o el
+> socket todavía no existe.
 
 | Pieza | Estado |
 |---|---|
