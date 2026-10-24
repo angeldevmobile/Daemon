@@ -72,6 +72,11 @@ pub const CHECKS: &[Check] = &[
         description: "More NUMA nodes than CPU sockets (SNC or NPS enabled in firmware)",
         run: checks::sub_numa_clustering,
     },
+    Check {
+        name: "smi_count",
+        description: "System Management Interrupts above a rate (MSR_SMI_COUNT, Intel, needs root)",
+        run: checks::smi_count,
+    },
 ];
 
 pub const ACTIONS: &[Action] = &[

@@ -766,7 +766,7 @@ hpcd audit · order-gateway.service (pid 4821) · 8 threads · 4 rules matched
         assert!(written.starts_with(
             "hpcd capture · order-gateway.service (pid 4821) · 2 samples 10s apart\n"
         ));
-        assert!(written.contains("   from /proc, /sys · no memory or file contents\n"));
+        assert!(written.contains("   from /dev, /proc, /sys · no memory or file contents\n"));
         assert!(
             written
                 .ends_with("✔ written · hpcctl audit --unit order-gateway.service --snapshot gw")

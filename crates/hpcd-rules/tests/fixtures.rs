@@ -74,6 +74,7 @@ fn only_expected_rules_match() {
             "isolcpus-missing",
             "powersave-governor",
             "remote-numa-memory",
+            "smi-activity",
             "smt-enabled",
             "smt-sibling-busy",
             "thread-migration"
@@ -102,6 +103,18 @@ fn isolcpus_missing() {
         "No isolated cores (requires reboot, proposal only)"
     );
     assert!(!f.fixable_at_runtime);
+}
+
+#[test]
+fn smi_activity() {
+    let findings = audit_order_gateway();
+    let f = finding(&findings, "smi-activity");
+    assert_eq!(
+        f.message,
+        "9 SMIs in 10s
+each SMI freezes every core; the OS cannot see or prevent it"
+    );
+    assert_eq!(f.evidence[0].excerpt, "+9 in 10s");
 }
 
 #[test]

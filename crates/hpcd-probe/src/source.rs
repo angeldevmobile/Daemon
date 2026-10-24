@@ -56,6 +56,31 @@ impl SysRoot {
         Ok(text)
     }
 
+    pub fn read_msr(&self, cpu: u32, register: u32) -> Result<u64, ProbeError> {
+        let key = format!("/dev/cpu/{cpu}/msr-{register:#x}");
+        let value = if self.root == Path::new("/") {
+            read_msr_device(&self.resolve(&format!("/dev/cpu/{cpu}/msr")), register)?
+        } else {
+            let full = self.resolve(&key);
+            let text = std::fs::read_to_string(&full).map_err(|source| ProbeError::Io {
+                path: full.clone(),
+                source,
+            })?;
+            text.trim().parse().map_err(|_| ProbeError::Parse {
+                path: full,
+                message: "expected a number".into(),
+            })?
+        };
+        self.record(
+            &key,
+            &format!(
+                "{value}
+"
+            ),
+        );
+        Ok(value)
+    }
+
     pub(crate) fn record(&self, path: &str, text: &str) {
         if let Some(recorder) = &self.recorder {
             let key = format!("/{}", path.trim_start_matches('/'));
@@ -86,6 +111,28 @@ impl SysRoot {
     pub fn root(&self) -> &Path {
         &self.root
     }
+}
+
+#[cfg(unix)]
+fn read_msr_device(path: &Path, register: u32) -> Result<u64, ProbeError> {
+    use std::os::unix::fs::FileExt;
+    let io = |source| ProbeError::Io {
+        path: path.to_path_buf(),
+        source,
+    };
+    let mut bytes = [0u8; 8];
+    std::fs::File::open(path)
+        .and_then(|f| f.read_exact_at(&mut bytes, u64::from(register)))
+        .map_err(io)?;
+    Ok(u64::from_le_bytes(bytes))
+}
+
+#[cfg(not(unix))]
+fn read_msr_device(path: &Path, _register: u32) -> Result<u64, ProbeError> {
+    Err(ProbeError::Io {
+        path: path.to_path_buf(),
+        source: std::io::ErrorKind::Unsupported.into(),
+    })
 }
 
 #[derive(Debug, Clone)]

@@ -17,7 +17,7 @@ pub use cpuset::CpuSet;
 pub use interrupts::IrqLine;
 pub use load::{Load, LoadCounters, read_load};
 pub use machine::Machine;
-pub use observe::{HOT_CPU_SHARE, Irq, Observation, Thread, observe};
+pub use observe::{HOT_CPU_SHARE, Irq, MSR_SMI_COUNT, Observation, Thread, observe};
 pub use source::{Source, SysRoot};
 pub use tasks::{Process, TaskStat, resolve_pids};
 

@@ -489,6 +489,38 @@ pub fn sub_numa_clustering(rule: &Rule, obs: &Observation) -> Result<Option<Hit>
     }))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SmiCount {
+    min_per_minute: f64,
+}
+
+pub fn smi_count(rule: &Rule, obs: &Observation) -> Result<Option<Hit>, String> {
+    let SmiCount { min_per_minute } = params(&rule.detect.params)?;
+    let Some(smis) = obs.smis else {
+        return Ok(None);
+    };
+    let secs = obs.interval.as_secs_f64();
+    if secs <= 0.0 || smis as f64 / secs * 60.0 < min_per_minute {
+        return Ok(None);
+    }
+    let word = if smis == 1 { "SMI" } else { "SMIs" };
+    Ok(Some(Hit {
+        message: format!(
+            "{smis} {word} in {}s
+each SMI freezes every core; the OS cannot see or prevent it",
+            obs.interval.as_secs()
+        ),
+        evidence: vec![Evidence {
+            source: format!(
+                "/dev/cpu/0/msr (MSR_SMI_COUNT {:#x})",
+                hpcd_probe::MSR_SMI_COUNT
+            ),
+            excerpt: format!("+{smis} in {}s", obs.interval.as_secs()),
+        }],
+    }))
+}
+
 fn hot_threads_target(target: &str) -> Result<(), String> {
     if target == "hot_threads" {
         Ok(())
@@ -578,8 +610,26 @@ mod tests {
             cpu_busy: Default::default(),
             numa_nodes: Default::default(),
             memory_pages: Default::default(),
+            smis: None,
             machine: Default::default(),
         }
+    }
+
+    #[test]
+    fn smi_count_needs_the_counter_and_a_minimum_rate() {
+        let r = rule("smi_count", "min_per_minute = 6");
+        let mut obs = host(&[], None);
+        assert!(smi_count(&r, &obs).unwrap().is_none());
+        obs.interval = Duration::from_secs(60);
+        obs.smis = Some(5);
+        assert!(smi_count(&r, &obs).unwrap().is_none());
+        obs.smis = Some(38);
+        let hit = smi_count(&r, &obs).unwrap().unwrap();
+        assert_eq!(
+            hit.message,
+            "38 SMIs in 60s
+each SMI freezes every core; the OS cannot see or prevent it"
+        );
     }
 
     #[test]

@@ -1,0 +1,29 @@
+id       = "smi-activity"
+title    = "System Management Interrupts freeze every core"
+category = "firmware"
+severity = "high"
+platform = "linux"
+goal     = ["latency", "stability"]
+order    = 100
+
+[detect]
+check = "smi_count"
+min_per_minute = 6
+
+[explain]
+summary = """
+An SMI hands the whole machine to the firmware: every core stops until the handler returns,
+often for tens or hundreds of microseconds. The OS cannot see, schedule around or block it, so
+the only fix is in the firmware: turn off the features that poll through SMIs.
+"""
+evidence = ["/dev/cpu/0/msr (MSR_SMI_COUNT 0x34)"]
+
+[references]
+links = [
+    "https://www.kernel.org/doc/html/latest/trace/hwlat_detector.html",
+    "https://lwn.net/Articles/860296/",
+]
+
+[propose]
+dell    = ["iDRAC → Lifecycle Log: look for frequent SMI sources (OEM telemetry, memory polling)"]
+generic = ["Update BIOS and BMC firmware, then disable features that poll through SMIs (OEM power or thermal telemetry, memory error polling, USB legacy emulation)"]

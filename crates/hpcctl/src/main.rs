@@ -213,6 +213,15 @@ fn audit(
         )
     };
     anstream::println!("{text}");
+    if firmware && obs.smis.is_none() {
+        anstream::println!(
+            "{}",
+            style::paint(
+                style::DIM,
+                "smi-activity not checked: needs root and the msr module (Intel only)"
+            )
+        );
+    }
     Ok(())
 }
 

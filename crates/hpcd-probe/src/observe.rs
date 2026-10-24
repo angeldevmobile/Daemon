@@ -11,6 +11,7 @@ use crate::tasks::{self, Process, TaskStat};
 use crate::{CpuSet, ProbeError, Source, SysRoot};
 
 pub const HOT_CPU_SHARE: f64 = 0.05;
+pub const MSR_SMI_COUNT: u32 = 0x34;
 const USER_HZ: f64 = 100.0;
 
 #[derive(Debug, Clone)]
@@ -57,6 +58,7 @@ pub struct Observation {
     pub cpu_busy: BTreeMap<u32, f64>,
     pub numa_nodes: BTreeMap<u32, CpuSet>,
     pub memory_pages: BTreeMap<u32, u64>,
+    pub smis: Option<u64>,
     pub machine: Machine,
 }
 
@@ -88,6 +90,7 @@ struct Sample {
     irqs: Vec<IrqLine>,
     threads: Vec<(u32, TaskStat)>,
     cpu_times: BTreeMap<u32, (u64, u64)>,
+    smi_count: Option<u64>,
 }
 
 fn sample(root: &SysRoot, pids: &[u32]) -> Result<Sample, ProbeError> {
@@ -112,6 +115,7 @@ fn sample(root: &SysRoot, pids: &[u32]) -> Result<Sample, ProbeError> {
         irqs,
         threads,
         cpu_times,
+        smi_count: root.read_msr(0, MSR_SMI_COUNT).ok(),
     })
 }
 
@@ -196,6 +200,10 @@ pub fn observe(source: &Source, target: &Target) -> Result<Observation, ProbeErr
             })
             .collect(),
         numa_nodes: numa::read_nodes(&second),
+        smis: before
+            .smi_count
+            .zip(after.smi_count)
+            .map(|(b, a)| a.wrapping_sub(b) & 0xffff_ffff),
         machine: machine::read_machine(&second),
         processes: tasks::read_processes(&second),
         tuned_profile: second
