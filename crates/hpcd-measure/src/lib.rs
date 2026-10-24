@@ -2,6 +2,7 @@ mod assert;
 #[cfg(all(target_os = "linux", hpcd_ebpf))]
 mod ebpf;
 mod guardrails;
+mod overhead;
 mod stability;
 mod stats;
 
@@ -12,6 +13,7 @@ use hpcd_core::Target;
 pub use assert::{Assertion, Op};
 pub use guardrails::{Guardrails, guardrails};
 pub use hpcd_probe::Load;
+pub use overhead::{EbpfCost, Overhead};
 pub use stability::{Drift, Signal, Window, drift, windows};
 pub use stats::{Estimate, Histogram, estimate, merge};
 
@@ -36,6 +38,7 @@ pub struct Measurement {
     pub load: Vec<Load>,
     pub windows: usize,
     pub waited: Duration,
+    pub overhead: Overhead,
     pub counters: Counters,
 }
 

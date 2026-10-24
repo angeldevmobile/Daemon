@@ -3,7 +3,7 @@ use hpcd_core::Finding;
 use std::time::Duration;
 
 use hpcd_measure::{
-    Drift, Estimate, Guardrails, Signal, Window, format_limit, format_ns, format_range,
+    Drift, Estimate, Guardrails, Overhead, Signal, Window, format_limit, format_ns, format_range,
 };
 use hpcd_probe::{Capture, Machine};
 use hpcd_rules::{Rule, registry};
@@ -368,6 +368,7 @@ pub fn measure(
     details: &[String],
     summary: &str,
     guardrails: Option<&Guardrails>,
+    overhead: Option<&Overhead>,
     rows: &[LatencyRow],
 ) -> String {
     let mut out = vec![
@@ -376,6 +377,9 @@ pub fn measure(
     ];
     if let Some(g) = guardrails {
         out.push(paint(style::DIM, format!("{INDENT}{}", guardrail_line(g))));
+    }
+    if let Some(o) = overhead {
+        out.push(paint(style::DIM, format!("{INDENT}{}", overhead_line(o))));
     }
     out.push(String::new());
     for row in rows {
@@ -508,6 +512,24 @@ fn guardrail_line(g: &Guardrails) -> String {
     parts.join(" · ")
 }
 
+fn overhead_line(o: &Overhead) -> String {
+    let cpu = o.cpu();
+    let cpu = if cpu < 10.0 {
+        format!("{cpu:.1}%")
+    } else {
+        format!("{cpu:.0}%")
+    };
+    let ebpf = match o.per_event() {
+        Some(d) => format!(" · eBPF {} per event", format_ns(d.as_nanos() as u64)),
+        None if o.ebpf.is_none() => " (eBPF not counted)".into(),
+        None => String::new(),
+    };
+    format!(
+        "hpcd itself {cpu} cpu during measurement{ebpf} · {} rss",
+        kib(o.rss_kib)
+    )
+}
+
 fn kib(n: u64) -> String {
     match n {
         0..1024 => format!("{n} KiB"),
@@ -593,11 +615,21 @@ mod tests {
                 faults: 120.0,
                 numa_misses: None,
             }),
+            Some(&Overhead {
+                elapsed: Duration::from_secs(100),
+                cpu_ticks: 30,
+                rss_kib: 14_336,
+                ebpf: Some(hpcd_measure::EbpfCost {
+                    run_time: Duration::from_millis(400),
+                    runs: 3_300_000,
+                }),
+            }),
             &rows,
         ));
         let expected = "hpcd measure · api.service (pid 4821) · run-queue latency · eBPF · 5 × 20s
    12,431 wakeups · 9 threads
    cpu 61% · power 142W · rss 3.1 GiB · faults 120/s
+   hpcd itself 0.7% cpu during measurement · eBPF 121ns per event · 14 MiB rss
 
   p99      182µs  [176–189]     budget 200µs    ✔ pass
   p99.9   1.31ms  [1.18–1.44]   budget 1ms      ✘ fail

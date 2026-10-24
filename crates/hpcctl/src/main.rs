@@ -344,6 +344,7 @@ fn measure(
             &details,
             &summary,
             Some(&m.guardrails()),
+            Some(&m.overhead),
             &rows
         )
     );

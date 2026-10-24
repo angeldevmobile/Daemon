@@ -7,8 +7,8 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 **Versión en curso:** v0.2 — Measure (v0.1 — Audit ✅ terminada y probada en WSL)
 
 > **Dónde nos quedamos (2026-10-23):** `measure` tiene chequeo de estabilidad, `--wait-stable` y
-> métricas de guardrails (cpu, power, rss, faults, numa misses), probado en WSL. Lo siguiente en
-> v0.2: overhead propio, SMI y herramientas MCP de solo lectura. Los límites de `policy.toml` se
+> métricas de guardrails (cpu, power, rss, faults, numa misses) y su propio overhead, probado en
+> WSL. Lo siguiente en v0.2: detección de SMI y herramientas MCP de solo lectura. Los límites de `policy.toml` se
 > aplican en v0.3 con `fix`. `--metric` y `--bench` quedan para cuando exista `fix --auto`.
 
 | Pieza | Estado |
@@ -26,7 +26,8 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | `hpcctl measure` con eBPF (aya), p50/p99/p99.9 con intervalo de confianza, `--assert` (pantalla 13) | ✅ probado en WSL |
 | Chequeo de estabilidad (pantalla 04) en `measure`, `--wait-stable` | ✅ probado en WSL |
 | Métricas de guardrails en `measure`: cpu, power (RAPL), rss, faults, numa misses | ✅ probado en WSL (sin RAPL ni NUMA) |
-| Overhead propio, SMI, herramientas MCP de solo lectura | ❌ siguiente |
+| Overhead propio en `measure` (CPU de hpcctl + tiempo de eBPF, ns por evento, RSS) | ✅ probado en WSL |
+| Detección de SMI, herramientas MCP de solo lectura | ❌ siguiente |
 | Set inicial completo: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing` | ✅ con fixture |
 | Firmware sin root: `smt-enabled`, `sub-numa-clustering` | ✅ |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
@@ -62,6 +63,19 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-23 · Overhead propio
+
+- Durante la medición se activan las estadísticas de eBPF del kernel (`BPF_ENABLE_STATS`, kernel
+  5.8+, con `aya::sys::enable_stats`; se desactivan al soltar el fd) y se suma `run_time` y
+  `run_count` de los tres tracepoints.
+- La CPU de `hpcctl` sale de `/proc/self/stat` y su memoria de `VmRSS`.
+- `measure` lo muestra como la pantalla 06:
+  `hpcd itself 1.3% cpu during measurement · eBPF 1.3µs per event · 6 MiB rss`. Si el kernel no
+  permite las estadísticas, dice `(eBPF not counted)`.
+- En WSL salen 1.3µs por evento, bastante. Parte es la VM (leer el reloj es caro) y parte las
+  propias estadísticas. Mejora posible: `learn_global` llama a `bpf_get_ns_current_pid_tgid` en
+  cada `sched_switch` de hilos que no son del target; se puede recordar los que ya se revisaron.
 
 ### 2026-10-23 · Métricas de guardrails
 
@@ -298,9 +312,9 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. v0.2, siguiente: overhead propio,
-   detección de SMI y herramientas MCP de solo lectura.
+1. v0.2, siguiente: detección de SMI y herramientas MCP de solo lectura.
 2. Probar en una máquina física cuando haya una a mano.
 3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
 4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
 5. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
+6. Bajar el costo por evento del programa eBPF (ver registro del overhead propio).

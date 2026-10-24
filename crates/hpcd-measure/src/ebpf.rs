@@ -1,17 +1,19 @@
 use std::collections::BTreeSet;
 use std::os::unix::fs::MetadataExt;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use aya::maps::{HashMap, MapData, PerCpuArray};
 use aya::programs::TracePoint;
+use aya::sys::{Stats, enable_stats};
 use aya::{Ebpf, EbpfLoader, include_bytes_aligned};
 use hpcd_ebpf::{BUCKETS, STATS};
 use hpcd_probe::SysRoot;
 
-use crate::{BLOCK, Counters, Histogram, Load, MeasureError, Measurement};
+use crate::{BLOCK, Counters, EbpfCost, Histogram, Load, MeasureError, Measurement, Overhead};
 
 static PROGRAM: &[u8] = include_bytes_aligned!(concat!(env!("OUT_DIR"), "/hpcd-ebpf"));
 
+const EVENTS: [&str; 3] = ["sched_wakeup", "sched_wakeup_new", "sched_switch"];
 const TRACEFS: [&str; 2] = ["/sys/kernel/tracing", "/sys/kernel/debug/tracing"];
 
 fn field_offset(event: &str, field: &str) -> Option<u32> {
@@ -71,7 +73,7 @@ fn load() -> Result<Ebpf, MeasureError> {
     let mut ebpf = loader.load(PROGRAM).map_err(|e| {
         ebpf_err("loading eBPF (needs root, or CAP_BPF and CAP_PERFMON)")(e.to_string())
     })?;
-    for event in ["sched_wakeup", "sched_wakeup_new", "sched_switch"] {
+    for event in EVENTS {
         let program: &mut TracePoint = ebpf
             .program_mut(event)
             .ok_or_else(|| ebpf_err(event)("program missing from object".into()))?
@@ -103,6 +105,22 @@ fn threads_of(root: &SysRoot, pids: &[u32]) -> BTreeSet<u32> {
         .collect()
 }
 
+fn ebpf_cost(ebpf: &Ebpf) -> Option<EbpfCost> {
+    EVENTS.iter().try_fold(
+        EbpfCost {
+            run_time: Duration::ZERO,
+            runs: 0,
+        },
+        |total, event| {
+            let info = ebpf.program(event)?.info().ok()?;
+            Some(EbpfCost {
+                run_time: total.run_time + info.run_time(),
+                runs: total.runs + info.run_count(),
+            })
+        },
+    )
+}
+
 pub fn run(
     pids: Vec<u32>,
     mut keep_going: impl FnMut(&[Histogram], &[Load]) -> bool,
@@ -119,7 +137,11 @@ pub fn run(
     let counters: PerCpuArray<MapData, u64> = PerCpuArray::try_from(take(&mut ebpf, "COUNTERS")?)
         .map_err(|e| ebpf_err("COUNTERS")(e.to_string()))?;
 
+    let stats = enable_stats(Stats::RunTime).ok();
+    let cost_before = stats.as_ref().and_then(|_| ebpf_cost(&ebpf));
+    let me = [std::process::id()];
     let root = SysRoot::live();
+    let self_before = hpcd_probe::read_load(&root, &me);
     let mut seen = BTreeSet::new();
     let mut previous = snapshot(&hist)?;
     let mut previous_load = hpcd_probe::read_load(&root, &pids);
@@ -146,6 +168,19 @@ pub fn run(
             break;
         }
     }
+    let self_after = hpcd_probe::read_load(&root, &me);
+    let overhead = Overhead {
+        elapsed: start.elapsed(),
+        cpu_ticks: self_after.since(&self_before).cpu_ticks,
+        rss_kib: self_after.rss_kib,
+        ebpf: cost_before
+            .zip(stats.as_ref().and_then(|_| ebpf_cost(&ebpf)))
+            .map(|(before, after)| EbpfCost {
+                run_time: after.run_time.saturating_sub(before.run_time),
+                runs: after.runs.saturating_sub(before.runs),
+            }),
+    };
+    drop(stats);
     let mut stats = [0u64; STATS as usize];
     for (i, slot) in stats.iter_mut().enumerate() {
         *slot = counters
@@ -160,7 +195,8 @@ pub fn run(
         blocks: result,
         load,
         windows: 1,
-        waited: std::time::Duration::ZERO,
+        waited: Duration::ZERO,
+        overhead,
         counters: Counters {
             wakeups: stats[0],
             switches: stats[1],
