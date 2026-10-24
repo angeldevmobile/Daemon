@@ -1,6 +1,8 @@
 use anstyle::Style;
 use hpcd_core::Finding;
-use hpcd_measure::{Estimate, format_limit, format_ns, format_range};
+use std::time::Duration;
+
+use hpcd_measure::{Drift, Estimate, Signal, Window, format_limit, format_ns, format_range};
 use hpcd_probe::{Capture, Machine};
 use hpcd_rules::{Rule, registry};
 
@@ -346,13 +348,7 @@ pub struct LatencyRow {
     pub check: Option<(u64, bool)>,
 }
 
-pub fn measure(
-    subject: &str,
-    qualifier: Option<&str>,
-    details: &[String],
-    summary: &str,
-    rows: &[LatencyRow],
-) -> String {
+fn measure_header(subject: &str, qualifier: Option<&str>, details: &[String]) -> String {
     let mut header = format!(
         "{}{}{subject}",
         paint(style::ACCENT, "hpcd measure"),
@@ -361,23 +357,30 @@ pub fn measure(
     if let Some(q) = qualifier {
         header += &paint(style::DIM, format!(" {q}"));
     }
-    header += &paint(style::DIM, format!(" · {}", details.join(" · ")));
+    header + &paint(style::DIM, format!(" · {}", details.join(" · ")))
+}
 
+pub fn measure(
+    subject: &str,
+    qualifier: Option<&str>,
+    details: &[String],
+    summary: &str,
+    rows: &[LatencyRow],
+) -> String {
     let mut out = vec![
-        header,
+        measure_header(subject, qualifier, details),
         paint(style::DIM, format!("{INDENT}{summary}")),
         String::new(),
     ];
     for row in rows {
         let e = row.estimate;
+        let range = format_range(e.low, e.high, e.value);
+        let width = if row.check.is_some() { 14 } else { 0 };
         let mut line = format!(
             "  {:<5}{}  {}",
             row.label,
             paint(Style::new().bold(), format!("{:>9}", format_ns(e.value))),
-            paint(
-                style::DIM,
-                format!("{:<14}", format_range(e.low, e.high, e.value))
-            ),
+            paint(style::DIM, format!("{range:<width$}")),
         );
         if let Some((limit, ok)) = row.check {
             line += &paint(
@@ -408,6 +411,103 @@ pub fn measure(
         "
 ",
     )
+}
+
+pub fn unstable(
+    subject: &str,
+    qualifier: Option<&str>,
+    details: &[String],
+    windows: &[Window],
+    drift: &[Drift],
+    waited: Option<Duration>,
+) -> String {
+    let mut out = vec![measure_header(subject, qualifier, details), String::new()];
+    let first = windows.iter().find_map(|w| w.p99);
+    for (i, w) in windows.iter().enumerate() {
+        let p99 = w.p99.map_or("—".to_string(), format_ns);
+        let p99_style = match (w.p99, first) {
+            (Some(v), Some(f)) if v >= f * 2 => style::BAD.bold(),
+            (Some(v), Some(f)) if v * 2 >= f * 3 => style::CAUTION.bold(),
+            _ => Style::new().bold(),
+        };
+        out.push(format!(
+            "{INDENT}window {}/{}   p99 {}{}",
+            i + 1,
+            windows.len(),
+            paint(p99_style, format!("{p99:>7}")),
+            paint(
+                style::DIM,
+                format!(
+                    "   cpu {:>4}   wakeups {:>7}   switches {:>7}",
+                    format!("{:.0}%", w.cpu),
+                    rate(w.wakeups),
+                    rate(w.switches)
+                )
+            ),
+        ));
+    }
+
+    let changes: Vec<String> = drift
+        .iter()
+        .map(|d| match d.signal {
+            Signal::Cpu => format!("cpu {:+.0} pts", d.to - d.from),
+            Signal::Wakeups | Signal::Switches => {
+                let name = if d.signal == Signal::Wakeups {
+                    "wakeups"
+                } else {
+                    "switches"
+                };
+                format!("{name} {:+.0}%", (d.to - d.from) / d.from.max(1.0) * 100.0)
+            }
+        })
+        .collect();
+    let changes = match changes.split_last() {
+        Some((last, [])) => last.clone(),
+        Some((last, rest)) => format!("{} and {last}", rest.join(", ")),
+        None => String::new(),
+    };
+    let mut why = format!("{INDENT}{changes} across windows");
+    if let Some(wait) = waited {
+        why += &format!(" · waited {}", elapsed(wait));
+    }
+    out.push(String::new());
+    out.push(format!(
+        "{}{}",
+        paint(style::BAD.bold(), "✘ load is not stable"),
+        paint(style::DIM, why)
+    ));
+    out.push("  A percentile now would mix different workloads, not describe one.".into());
+    out.push("  No verdict was given.".into());
+    if waited.is_none() {
+        out.push(String::new());
+        out.push(paint(style::DIM, "  try:"));
+        out.push(format!(
+            "    · wait for steady load, then measure    {}",
+            paint(style::ACCENT, "hpcctl measure … --wait-stable 10m")
+        ));
+    }
+    out.join("\n")
+}
+
+fn rate(per_sec: f64) -> String {
+    if per_sec < 1000.0 {
+        format!("{per_sec:.0}/s")
+    } else if per_sec < 1e6 {
+        format!("{:.1}k/s", per_sec / 1e3)
+    } else {
+        format!("{:.1}M/s", per_sec / 1e6)
+    }
+}
+
+pub fn elapsed(d: Duration) -> String {
+    let s = d.as_secs();
+    match (s / 3600, s / 60 % 60, s % 60) {
+        (0, 0, s) => format!("{s}s"),
+        (0, m, 0) => format!("{m}m"),
+        (0, m, s) => format!("{m}m {s}s"),
+        (h, 0, _) => format!("{h}h"),
+        (h, m, _) => format!("{h}h {m}m"),
+    }
 }
 
 fn section(out: &mut Vec<String>, name: &str, lines: impl IntoIterator<Item = String>) {
@@ -470,6 +570,51 @@ mod tests {
 ✘ tail latency budget exceeded";
         assert_eq!(text, expected);
         assert_eq!(plural(12_431, "wakeup", "wakeups"), "12,431 wakeups");
+    }
+
+    #[test]
+    fn unstable_load_matches_design() {
+        let window = |p99, cpu, wakeups| Window {
+            p99: Some(p99),
+            cpu,
+            wakeups,
+            switches: 13_000.0,
+        };
+        let windows = [
+            window(198_000, 58.0, 12_100.0),
+            window(341_000, 83.0, 19_800.0),
+            window(455_000, 91.0, 24_300.0),
+        ];
+        let drift = hpcd_measure::drift(&windows);
+        let details = [
+            "run-queue latency".to_string(),
+            "eBPF".into(),
+            "3 × 20s".into(),
+        ];
+        let text = plain(&unstable(
+            "order-gateway.service",
+            Some("(pid 4821)"),
+            &details,
+            &windows,
+            &drift,
+            None,
+        ));
+        let expected =
+            "hpcd measure · order-gateway.service (pid 4821) · run-queue latency · eBPF · 3 × 20s
+
+   window 1/3   p99   198µs   cpu  58%   wakeups 12.1k/s   switches 13.0k/s
+   window 2/3   p99   341µs   cpu  83%   wakeups 19.8k/s   switches 13.0k/s
+   window 3/3   p99   455µs   cpu  91%   wakeups 24.3k/s   switches 13.0k/s
+
+✘ load is not stable   wakeups +101% and cpu +33 pts across windows
+  A percentile now would mix different workloads, not describe one.
+  No verdict was given.
+
+  try:
+    · wait for steady load, then measure    hpcctl measure … --wait-stable 10m";
+        assert_eq!(text, expected);
+        assert_eq!(elapsed(Duration::from_secs(130)), "2m 10s");
+        assert_eq!(elapsed(Duration::from_secs(600)), "10m");
     }
 
     #[test]

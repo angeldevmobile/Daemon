@@ -9,7 +9,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand};
 use hpcd_core::Target;
-use hpcd_measure::Assertion;
+use hpcd_measure::{Assertion, Plan};
 use hpcd_probe::Source;
 use hpcd_rules::{Category, Rule, registry};
 
@@ -61,6 +61,8 @@ enum Command {
         show: bool,
     },
     /// Measure run-queue latency with eBPF (needs root, or CAP_BPF and CAP_PERFMON).
+    ///
+    /// Exits 2 without a verdict if the load changes between windows.
     Measure {
         #[command(flatten)]
         target: TargetArgs,
@@ -73,6 +75,9 @@ enum Command {
         /// Exit 1 unless the condition holds, e.g. "p99 < 200µs". Repeatable.
         #[arg(long = "assert", value_name = "CONDITION")]
         asserts: Vec<String>,
+        /// Keep measuring until the load is steady, for at most this long, e.g. "10m".
+        #[arg(long, value_name = "DURATION", value_parser = parse_duration)]
+        wait_stable: Option<Duration>,
     },
     /// List the checks rules can use.
     Checks,
@@ -147,7 +152,8 @@ fn main() -> Result<()> {
             windows,
             window,
             asserts,
-        } => measure(target.into_target(), windows, window, &asserts)?,
+            wait_stable,
+        } => measure(target.into_target(), windows, window, wait_stable, &asserts)?,
         Command::Checks => print_entries(registry::CHECKS.iter().map(|c| (c.name, c.description))),
         Command::Actions => {
             print_entries(registry::ACTIONS.iter().map(|a| (a.name, a.description)))
@@ -210,19 +216,49 @@ fn audit(
     Ok(())
 }
 
-fn measure(target: Target, windows: u32, window: u64, asserts: &[String]) -> Result<()> {
+fn parse_duration(s: &str) -> std::result::Result<Duration, String> {
+    let (number, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len()));
+    let n: u64 = number
+        .parse()
+        .map_err(|_| format!("'{s}': expected something like 30s, 10m or 1h"))?;
+    let secs = match unit {
+        "" | "s" => n,
+        "m" => n * 60,
+        "h" => n * 3600,
+        _ => return Err(format!("'{s}': unit must be s, m or h")),
+    };
+    Ok(Duration::from_secs(secs))
+}
+
+fn measure(
+    target: Target,
+    windows: u32,
+    window: u64,
+    wait_stable: Option<Duration>,
+    asserts: &[String],
+) -> Result<()> {
     let asserts = asserts
         .iter()
         .map(|a| a.parse::<Assertion>().map_err(anyhow::Error::msg))
         .collect::<Result<Vec<_>>>()?;
-    let duration = Duration::from_secs(window * u64::from(windows.max(1)));
+    let plan = Plan {
+        windows: windows.max(1) as usize,
+        window: Duration::from_secs(window),
+        wait_stable,
+    };
+    let total = plan.needed();
     let tty = std::io::stderr().is_terminal();
-    let m = hpcd_measure::measure(&target, duration, |done, total| {
+    let m = hpcd_measure::measure(&target, plan, |done| {
         if tty {
-            anstream::eprint!(
-                "\r{}",
-                style::paint(style::DIM, format!("measuring {done}/{total}s"))
-            );
+            let text = if done > total {
+                format!(
+                    "waiting for steady load {}",
+                    render::elapsed(Duration::from_secs(done as u64))
+                )
+            } else {
+                format!("measuring {done}/{total}s")
+            };
+            anstream::eprint!("\r\x1b[2K{}", style::paint(style::DIM, text));
         }
     })?;
     if tty {
@@ -238,6 +274,29 @@ fn measure(target: Target, windows: u32, window: u64, asserts: &[String]) -> Res
             c.target_runnable,
             c.recorded
         );
+    }
+
+    let qualifier = pid_qualifier(&target, &m.pids);
+    let details = [
+        "run-queue latency".to_string(),
+        "eBPF".to_string(),
+        format!("{windows} × {window}s"),
+    ];
+    let measured = m.windows();
+    let drift = hpcd_measure::drift(&measured);
+    if !drift.is_empty() {
+        anstream::println!(
+            "{}",
+            render::unstable(
+                &target.to_string(),
+                qualifier.as_deref(),
+                &details,
+                &measured,
+                &drift,
+                wait_stable,
+            )
+        );
+        std::process::exit(2);
     }
 
     let mut quantiles: Vec<(String, f64)> = [("p50", 0.5), ("p99", 0.99), ("p99.9", 0.999)]
@@ -265,17 +324,18 @@ fn measure(target: Target, windows: u32, window: u64, asserts: &[String]) -> Res
         })
         .collect();
 
-    let qualifier = pid_qualifier(&target, &m.pids);
-    let details = [
-        "run-queue latency".to_string(),
-        "eBPF".to_string(),
-        format!("{windows} × {window}s"),
-    ];
-    let summary = format!(
+    let mut summary = format!(
         "{} · {}",
         render::plural(m.wakeups() as usize, "wakeup", "wakeups"),
         render::plural(m.threads, "thread", "threads"),
     );
+    if measured.len() > 1 {
+        summary += " · load stable";
+        if !m.waited.is_zero() {
+            summary += &format!(" after {}", render::elapsed(m.waited));
+        }
+        summary += " ✔";
+    }
     anstream::println!(
         "{}",
         render::measure(

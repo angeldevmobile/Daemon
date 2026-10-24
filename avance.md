@@ -6,10 +6,9 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 
 **Versión en curso:** v0.2 — Measure (v0.1 — Audit ✅ terminada y probada en WSL)
 
-> **Dónde nos quedamos (2026-10-23):** `hpcctl measure` funciona en WSL con eBPF. Lo siguiente es
-> el **chequeo de estabilidad** (pantalla 04): comparar CPU del target, wakeups/s y cambios de
-> contexto entre ventanas, y negarse a dar veredicto si la carga no es estable, sugiriendo
-> `--wait-stable`, `--metric` o `--bench`. Pendiente subir el commit de `measure` si no se hizo.
+> **Dónde nos quedamos (2026-10-23):** `measure` tiene chequeo de estabilidad y `--wait-stable`,
+> probado en WSL. Lo siguiente en v0.2: guardrails, overhead propio, SMI y herramientas MCP de
+> solo lectura. `--metric` y `--bench` quedan para cuando exista `fix --auto`.
 
 | Pieza | Estado |
 |---|---|
@@ -24,8 +23,8 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | CLI instalable (`cargo install`), reglas dentro del binario | ✅ |
 | Banner `hpcctl` sin argumentos (pantalla 14) | ✅ |
 | `hpcctl measure` con eBPF (aya), p50/p99/p99.9 con intervalo de confianza, `--assert` (pantalla 13) | ✅ probado en WSL |
-| Chequeo de estabilidad (pantalla 04) | ❌ siguiente |
-| Guardrails, overhead propio, SMI, herramientas MCP de solo lectura | ❌ |
+| Chequeo de estabilidad (pantalla 04) en `measure`, `--wait-stable` | ✅ probado en WSL |
+| Guardrails, overhead propio, SMI, herramientas MCP de solo lectura | ❌ siguiente |
 | Set inicial completo: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing` | ✅ con fixture |
 | Firmware sin root: `smt-enabled`, `sub-numa-clustering` | ✅ |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
@@ -61,6 +60,25 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-23 · Chequeo de estabilidad (pantalla 04)
+
+- `measure` lee cada segundo la carga del target: CPU (`/proc/<pid>/stat`), cambios de contexto
+  (`voluntary` + `nonvoluntary` de cada hilo) y wakeups (el histograma eBPF).
+- Agrupa por ventana y compara: inestable si la CPU varía más de 10 puntos (o 20% de la media,
+  para procesos con muchos cores) o si wakeups/s o switches/s cambian más de 25% y más de 50/s.
+- Si es inestable, muestra las ventanas como la pantalla 04 (p99 en amarillo con +50%, rojo con
+  +100% respecto a la primera), no da veredicto y sale con código **2** (no 1, para que CI no lo
+  confunda con una regresión).
+- Si es estable, el resumen dice `load stable ✔` (como el README).
+- `--wait-stable 10m`: sigue midiendo y se queda con las últimas N ventanas en cuanto son
+  estables; si se acaba el tiempo, sale con código 2 y dice cuánto esperó.
+- Solo se sugiere `--wait-stable`: `--metric` y `--bench` no existen todavía.
+- La pantalla 04 es de `fix --auto` y usa "requests"; `measure` no conoce las peticiones de la
+  app y usa wakeups y switches en su lugar.
+- Probado en WSL: `jitter-demo --noise` estable (exit 1 por el `--assert`); un script de Python
+  que agrega hilos cada 5s da inestable (exit 2); con `--wait-stable 30s` espera 7s y mide.
+- Arreglado: las filas de `measure` sin `--assert` terminaban con espacios.
 
 ### 2026-10-23 · `measure` funciona en WSL
 
@@ -263,8 +281,7 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. v0.2, siguiente: chequeo de
-   estabilidad (pantalla 04), guardrails (throughput, CPU, energía, memoria), overhead propio,
+1. v0.2, siguiente: guardrails (throughput, CPU, energía, memoria), overhead propio,
    detección de SMI y herramientas MCP de solo lectura.
 2. Probar en una máquina física cuando haya una a mano.
 3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).

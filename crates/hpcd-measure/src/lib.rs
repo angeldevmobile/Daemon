@@ -1,6 +1,7 @@
 mod assert;
 #[cfg(all(target_os = "linux", hpcd_ebpf))]
 mod ebpf;
+mod stability;
 mod stats;
 
 use std::time::Duration;
@@ -8,6 +9,7 @@ use std::time::Duration;
 use hpcd_core::Target;
 
 pub use assert::{Assertion, Op};
+pub use stability::{Drift, Load, Signal, Window, drift, windows};
 pub use stats::{Estimate, Histogram, estimate, merge};
 
 pub const BLOCK: Duration = Duration::from_secs(1);
@@ -27,7 +29,41 @@ pub struct Measurement {
     pub pids: Vec<u32>,
     pub threads: usize,
     pub blocks: Vec<Histogram>,
+    pub load: Vec<Load>,
+    pub windows: usize,
+    pub waited: Duration,
     pub counters: Counters,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct Plan {
+    pub windows: usize,
+    pub window: Duration,
+    pub wait_stable: Option<Duration>,
+}
+
+impl Plan {
+    fn blocks(d: Duration) -> usize {
+        (d.as_secs_f64() / BLOCK.as_secs_f64()).ceil() as usize
+    }
+
+    pub fn needed(&self) -> usize {
+        Self::blocks(self.window).max(1) * self.windows.max(1)
+    }
+
+    #[cfg_attr(not(all(target_os = "linux", hpcd_ebpf)), allow(dead_code))]
+    fn done(&self, blocks: &[Histogram], load: &[Load]) -> bool {
+        let needed = self.needed();
+        if blocks.len() < needed {
+            return false;
+        }
+        let Some(wait) = self.wait_stable else {
+            return true;
+        };
+        let from = blocks.len() - needed;
+        blocks.len() >= needed + Self::blocks(wait)
+            || drift(&windows(&blocks[from..], &load[from..], self.windows)).is_empty()
+    }
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -42,24 +78,34 @@ impl Measurement {
     pub fn wakeups(&self) -> u64 {
         merge(&self.blocks).total()
     }
+
+    pub fn windows(&self) -> Vec<Window> {
+        windows(&self.blocks, &self.load, self.windows)
+    }
 }
 
 pub fn measure(
     target: &Target,
-    duration: Duration,
-    progress: impl FnMut(usize, usize),
+    plan: Plan,
+    mut progress: impl FnMut(usize),
 ) -> Result<Measurement, MeasureError> {
     #[cfg(all(target_os = "linux", hpcd_ebpf))]
     {
         let pids = hpcd_probe::resolve_pids(&hpcd_probe::SysRoot::live(), target)?;
-        let blocks = (duration.as_secs_f64() / BLOCK.as_secs_f64())
-            .ceil()
-            .max(1.0) as usize;
-        ebpf::run(pids, blocks, progress)
+        let mut m = ebpf::run(pids, |blocks, load| {
+            progress(blocks.len());
+            !plan.done(blocks, load)
+        })?;
+        let extra = m.blocks.len().saturating_sub(plan.needed());
+        m.blocks.drain(..extra);
+        m.load.drain(..extra);
+        m.windows = plan.windows.max(1);
+        m.waited = BLOCK * extra as u32;
+        Ok(m)
     }
     #[cfg(not(all(target_os = "linux", hpcd_ebpf)))]
     {
-        let _ = (target, duration, progress);
+        let _ = (target, plan, &mut progress);
         Err(MeasureError::Unsupported(if cfg!(target_os = "linux") {
             "this hpcctl was built without eBPF support (AYA_BUILD_SKIP); rebuild with nightly and bpf-linker".into()
         } else {
@@ -118,5 +164,27 @@ mod tests {
         assert_eq!(format_limit(1_500_000), "1.5ms");
         assert_eq!(format_range(205_000, 219_000, 212_000), "[205–219]");
         assert_eq!(format_range(1_180_000, 1_440_000, 1_310_000), "[1.18–1.44]");
+    }
+
+    #[test]
+    fn plan_waits_until_the_last_windows_are_stable() {
+        let plan = Plan {
+            windows: 2,
+            window: Duration::from_secs(1),
+            wait_stable: Some(Duration::from_secs(10)),
+        };
+        let mut h = Histogram::default();
+        (0..1000).for_each(|_| h.record(50_000));
+        let quiet = Histogram::default();
+        let load = vec![Load::default(); 12];
+        assert!(!plan.done(&[h.clone()], &load[..1]));
+        assert!(!plan.done(&[quiet.clone(), h.clone()], &load[..2]));
+        assert!(plan.done(&[quiet.clone(), h.clone(), h.clone()], &load[..3]));
+        assert!(plan.done(&vec![quiet; 12], &load));
+        let fixed = Plan {
+            wait_stable: None,
+            ..plan
+        };
+        assert!(fixed.done(&[Histogram::default(), h], &load[..2]));
     }
 }

@@ -8,7 +8,7 @@ use aya::{Ebpf, EbpfLoader, include_bytes_aligned};
 use hpcd_ebpf::{BUCKETS, STATS};
 use hpcd_probe::SysRoot;
 
-use crate::{BLOCK, Counters, Histogram, MeasureError, Measurement};
+use crate::{BLOCK, Counters, Histogram, Load, MeasureError, Measurement};
 
 static PROGRAM: &[u8] = include_bytes_aligned!(concat!(env!("OUT_DIR"), "/hpcd-ebpf"));
 
@@ -105,8 +105,7 @@ fn threads_of(root: &SysRoot, pids: &[u32]) -> BTreeSet<u32> {
 
 pub fn run(
     pids: Vec<u32>,
-    blocks: usize,
-    mut progress: impl FnMut(usize, usize),
+    mut keep_going: impl FnMut(&[Histogram], &[Load]) -> bool,
 ) -> Result<Measurement, MeasureError> {
     let mut ebpf = load()?;
     let take = |ebpf: &mut Ebpf, name: &str| {
@@ -123,9 +122,11 @@ pub fn run(
     let root = SysRoot::live();
     let mut seen = BTreeSet::new();
     let mut previous = snapshot(&hist)?;
-    let mut result = Vec::with_capacity(blocks);
+    let mut previous_load = hpcd_probe::read_load(&root, &pids);
+    let mut result = Vec::new();
+    let mut load = Vec::new();
     let start = Instant::now();
-    for i in 0..blocks {
+    for i in 0.. {
         for tid in threads_of(&root, &pids) {
             if seen.insert(tid) {
                 targets
@@ -136,9 +137,18 @@ pub fn run(
         let deadline = start + BLOCK * (i as u32 + 1);
         std::thread::sleep(deadline.saturating_duration_since(Instant::now()));
         let current = snapshot(&hist)?;
+        let current_load = hpcd_probe::read_load(&root, &pids);
+        let (cpu_ticks, switches) = current_load.since(&previous_load);
         result.push(current.since(&previous));
+        load.push(Load {
+            cpu_ticks,
+            switches,
+        });
         previous = current;
-        progress(i + 1, blocks);
+        previous_load = current_load;
+        if !keep_going(&result, &load) {
+            break;
+        }
     }
     let mut stats = [0u64; STATS as usize];
     for (i, slot) in stats.iter_mut().enumerate() {
@@ -152,6 +162,9 @@ pub fn run(
         pids,
         threads: seen.len(),
         blocks: result,
+        load,
+        windows: 1,
+        waited: std::time::Duration::ZERO,
         counters: Counters {
             wakeups: stats[0],
             switches: stats[1],

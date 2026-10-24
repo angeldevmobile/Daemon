@@ -17,7 +17,7 @@ pub use interrupts::IrqLine;
 pub use machine::Machine;
 pub use observe::{HOT_CPU_SHARE, Irq, Observation, Thread, observe};
 pub use source::{Source, SysRoot};
-pub use tasks::{Process, TaskStat, resolve_pids};
+pub use tasks::{LoadCounters, Process, TaskStat, read_load, resolve_pids};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProbeError {

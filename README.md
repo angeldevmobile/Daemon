@@ -208,6 +208,10 @@ $ hpcctl measure --unit api.service --assert "p99 < 200µs" --assert "p99.9 < 1m
 p99 182µs [176–189] ✔ · p99.9 1.31ms [1.18–1.44] ✘ · exit 1
 ```
 
+If the load changes between windows, `measure` gives no verdict and exits 2, so a busy
+runner is not mistaken for a regression. `--wait-stable 10m` keeps measuring until the load
+settles.
+
 **Inject noise.** Reproduce production jitter on purpose, to check that the application
 copes, that alerts fire, or that a fix really works:
 
