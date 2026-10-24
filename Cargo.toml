@@ -6,6 +6,7 @@ members = [
     "crates/hpcd-rules",
     "crates/hpcd-ebpf",
     "crates/hpcd-measure",
+    "crates/hpcd-fix",
     "crates/hpcctl",
     "bench/jitter-demo",
 ]
@@ -23,6 +24,7 @@ hpcd-probe = { path = "crates/hpcd-probe" }
 hpcd-rules = { path = "crates/hpcd-rules" }
 hpcd-ebpf = { path = "crates/hpcd-ebpf" }
 hpcd-measure = { path = "crates/hpcd-measure" }
+hpcd-fix = { path = "crates/hpcd-fix" }
 
 anstream = "1"
 anstyle = "1"

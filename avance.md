@@ -4,12 +4,11 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 
 ## Estado actual
 
-**Versión en curso:** v0.2 — Measure, completa salvo pruebas en máquina física (v0.1 — Audit ✅)
+**Versión en curso:** v0.3 — Fix (v0.2 — Measure ✅, v0.1 — Audit ✅)
 
-> **Dónde nos quedamos (2026-10-23):** v0.2 tiene todas sus piezas: `measure` con estabilidad,
-> guardrails y overhead, detección de SMI y `hpcctl mcp` con las 8 herramientas de solo lectura.
-> Falta probar en una máquina física (SMI, RAPL, NUMA, costo de eBPF en el namespace raíz).
-> Lo siguiente es v0.3 — Fix: daemon, policy, snapshots, leases.
+> **Dónde nos quedamos (2026-10-23):** v0.3 partes 1 y 2 hechas: `hpcd-fix` aplica y revierte
+> cambios, y `hpcctl fix --dry-run` muestra el plan de cada regla. Lo siguiente es la parte 3:
+> el daemon `hpcd` (socket Unix, `SO_PEERCRED`, `policy.toml`, leases).
 
 | Pieza | Estado |
 |---|---|
@@ -33,6 +32,10 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | Set inicial completo: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing` | ✅ con fixture |
 | Firmware sin root: `smt-enabled`, `sub-numa-clustering` | ✅ |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
+| v0.3 parte 1: `hpcd-fix` (cambios con snapshot, journal, verificación, rollback, recuperación) | ✅ probado en WSL |
+| v0.3 parte 2: `hpcctl fix --dry-run` (planificadores por acción, conflictos activos) | ✅ probado en WSL |
+| v0.3 parte 3: daemon `hpcd` | ❌ siguiente |
+| v0.3 partes 4–6: `fix --interactive`, MCP de acción, `hpcctl run` | ❌ |
 | Reglas de conflictos restantes (`systemd-cpuaffinity`, `cpuset-restricted`, `k8s-cpu-manager`) | ❌ |
 
 ## Cómo probar
@@ -65,6 +68,44 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-23 · v0.3 parte 2: `hpcctl fix --dry-run`
+
+- `hpcd-core::Plan`: regla, resumen, cambios, riesgo, reboot, conflictos activos y nota.
+- Cada acción del registro tiene ahora su planificador (`hpcd-rules/src/plan.rs`), que convierte
+  la observación en cambios concretos: IRQs a mover, cores a cambiar de governor, hilos a fijar.
+- `housekeeping_cores`: cores sin hilos calientes ni hermanos SMT de uno, no aislados, en el
+  mismo nodo NUMA si se puede. En la captura: cores 2,6.
+- Conflictos activos: los de `[fix.conflicts]` cuya regla de conflicto (`irqbalance-active`,
+  `tuned-active`) coincidió en el audit.
+- `move_tasks_off_cpu` todavía no lista las tareas: la captura no guarda las de todo el sistema;
+  se leerán al aplicar.
+- `hpcctl fix --dry-run` con el formato de la pantalla 03 (`[1/5] regla → resumen`), los
+  cambios debajo, conflictos con ⚠ y las propuestas de boot aparte. Sin `--dry-run` dice que
+  falta el daemon. Orden por `order` de cada regla, como el diseño.
+- Encontrado al probar en vivo con `jitter-demo --noise`: los hilos calientes ocupan los 8 cores
+  y la propuesta era `isolcpus=…,0-7`. Ahora no propone aislar si no quedan cores para el
+  sistema, y lo explica.
+
+### 2026-10-23 · v0.3 parte 1: `hpcd-fix`
+
+- Plan de v0.3 en 6 partes: (1) aplicar y revertir cambios, (2) `fix --dry-run`, (3) daemon con
+  socket, `SO_PEERCRED`, `policy.toml` y leases, (4) `fix --interactive` con medición antes y
+  después y guardrails, (5) herramientas MCP de acción, (6) `hpcctl run`.
+- `CpuSet` pasa a `hpcd-core` (serializable); `hpcd-probe` lo reexporta igual.
+- `hpcd-core::Change`: `IrqAffinity`, `CpuGovernor`, `ThreadAffinity`, `CpuDmaLatency`.
+  `move_tasks_off_cpu` será varios `ThreadAffinity`; `propose_kernel_cmdline` no produce cambios.
+- Nuevo crate `hpcd-fix`. Por cada cambio: leer el valor actual, guardarlo en el journal (un
+  JSON por grupo, escrito con rename), escribir y volver a leer. Si el kernel deja otro valor o
+  algo falla, revierte lo ya aplicado. Al arrancar, revierte lo que dejó una caída.
+- `CpuDmaLatency` se mantiene mientras el archivo siga abierto (`Hold`); revertir es cerrarlo.
+  Tras una caída el kernel ya lo soltó.
+- `commit` olvida el snapshot y conserva el cambio. Persistir entre reinicios es de v0.4.
+- Hilo o IRQ que ya no existe al revertir: se da por revertido.
+- El acceso al sistema pasa por el trait `System`: tests con un sistema falso (en Windows también)
+  y un test en Linux que fija la afinidad de un `sleep` real y la restaura. `cpu_dma_latency`
+  probado en WSL (ahí es escribible sin root).
+- v0.2 marcada como hecha en el roadmap del README.
 
 ### 2026-10-23 · `hpcctl mcp`: herramientas de solo lectura
 
@@ -364,7 +405,7 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. v0.3 — Fix: daemon, policy, snapshots, leases, fixes interactivos.
+1. v0.3 parte 3: daemon `hpcd`.
 2. Probar en una máquina física cuando haya una a mano.
 3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
 4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.

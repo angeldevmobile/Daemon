@@ -6,7 +6,7 @@ use hpcd_measure::{
     Drift, Estimate, Guardrails, Overhead, Signal, Window, format_limit, format_ns, format_range,
 };
 use hpcd_probe::{Capture, Machine};
-use hpcd_rules::{Rule, registry};
+use hpcd_rules::{Planned, Rule, registry};
 
 use crate::style::{self, paint, severity_badge};
 
@@ -96,6 +96,105 @@ pub fn explain(rule: &Rule) -> String {
 pub enum Footer<'a> {
     Fix(&'a str),
     Text(String),
+}
+
+const MAX_CHANGES: usize = 6;
+
+pub fn fix_plan(subject: &str, qualifier: Option<&str>, planned: &[Planned]) -> String {
+    let mut header = format!(
+        "{}{}{subject}",
+        paint(style::ACCENT, "hpcd fix"),
+        paint(style::DIM, " · ")
+    );
+    if let Some(q) = qualifier {
+        header += &paint(style::DIM, format!(" {q}"));
+    }
+    header += &paint(style::DIM, " · dry run · nothing is changed");
+    let mut out = vec![header, String::new()];
+
+    let (proposals, fixes): (Vec<&Planned>, Vec<&Planned>) = planned.iter().partition(|p| p.reboot);
+    if fixes.is_empty() && proposals.is_empty() {
+        out.push(paint(style::OK_BOLD, "✔ nothing to fix"));
+        return out.join("\n");
+    }
+    let heads: Vec<String> = fixes
+        .iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let summary = match &p.plan {
+                Ok(plan) => plan.summary.clone(),
+                Err(_) => "cannot plan".into(),
+            };
+            format!("[{}/{}] {} → {summary}", i + 1, fixes.len(), p.rule_id)
+        })
+        .collect();
+    let width = heads.iter().map(|h| h.chars().count()).max().unwrap_or(0);
+    let indent = "      ";
+    for (p, head) in fixes.iter().zip(&heads) {
+        let pad = " ".repeat(width - head.chars().count());
+        let (number, rest) = head.split_once(' ').unwrap_or((head, ""));
+        let (_, summary) = rest.split_once(" → ").unwrap_or((rest, ""));
+        let mut line = format!(
+            "{} {} → {summary}{pad}",
+            paint(style::DIM, number),
+            paint(style::ID, &p.rule_id)
+        );
+        match &p.plan {
+            Ok(plan) => {
+                line += &format!(
+                    "   {}{}",
+                    paint(style::DIM, "risk "),
+                    paint(style::risk(plan.risk), plan.risk)
+                );
+                out.push(line);
+                for c in plan.changes.iter().take(MAX_CHANGES) {
+                    out.push(paint(style::DIM, format!("{indent}{c}")));
+                }
+                if plan.changes.len() > MAX_CHANGES {
+                    out.push(paint(
+                        style::DIM,
+                        format!("{indent}… {} more", plan.changes.len() - MAX_CHANGES),
+                    ));
+                }
+                if let Some(note) = &plan.note {
+                    out.push(paint(style::DIM, format!("{indent}{note}")));
+                }
+                for c in &plan.conflicts {
+                    out.push(format!("{indent}{} {}", paint(style::WARN, "⚠"), c));
+                }
+            }
+            Err(e) => {
+                out.push(line);
+                out.push(paint(style::BAD, format!("{indent}✘ {e}")));
+            }
+        }
+    }
+
+    if !proposals.is_empty() {
+        out.push(String::new());
+        out.push(format!(
+            "{}{}",
+            paint(style::ACCENT, "proposal"),
+            paint(style::DIM, " · needs a reboot, never applied")
+        ));
+        for p in proposals {
+            let text = match &p.plan {
+                Ok(plan) => plan.summary.clone(),
+                Err(e) => paint(style::DIM, e),
+            };
+            out.push(format!("  {} → {text}", paint(style::ID, &p.rule_id)));
+        }
+    }
+
+    out.push(String::new());
+    out.push(paint(
+        style::DIM,
+        format!(
+            "{} · each is applied alone, measured against a baseline and kept only if it helps",
+            plural(fixes.len(), "fix", "fixes")
+        ),
+    ));
+    out.join("\n")
 }
 
 pub fn audit(
@@ -748,6 +847,36 @@ hpcd audit · order-gateway.service (pid 4821) · 8 threads · 4 rules matched
             plain(&text),
             "hpcd audit · pid 1148 · 1 thread · 0 rules matched\n\n✔ no issues found"
         );
+    }
+
+    #[test]
+    fn fix_plan_lists_changes_conflicts_and_proposals() {
+        let rules_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../rules");
+        let rules = hpcd_rules::load_dir(&rules_dir).unwrap();
+        let source = hpcd_probe::Source::snapshot(rules_dir.join("tests/order-gateway")).unwrap();
+        let target = hpcd_core::Target::Unit("order-gateway.service".into());
+        let obs = hpcd_probe::observe(&source, &target).unwrap();
+        let findings = hpcd_rules::evaluate(&rules, &obs).unwrap();
+        let text = plain(&fix_plan(
+            "order-gateway.service",
+            Some("(pid 4821)"),
+            &hpcd_rules::plan(&rules, &findings, &obs),
+        ));
+        assert!(text.starts_with(
+            "hpcd fix · order-gateway.service (pid 4821) · dry run · nothing is changed\n\n\
+             [1/5] irq-on-hot-core → move eth0 (rx-0..3) IRQs to cores 2,6   risk low\n\
+             \x20     IRQ 142 → cpus 2,6\n"
+        ));
+        assert!(text.contains("      ⚠ irqbalance is active · Ban the affected IRQs"));
+        assert!(text.contains(
+            "[4/5] thread-migration → pin thread 4823 to core 3              risk medium\n"
+        ));
+        assert!(text.contains(
+            "proposal · needs a reboot, never applied\n  isolcpus-missing → add isolcpus="
+        ));
+        assert!(text.ends_with(
+            "5 fixes · each is applied alone, measured against a baseline and kept only if it helps"
+        ));
     }
 
     #[test]

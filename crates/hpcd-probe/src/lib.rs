@@ -1,6 +1,5 @@
 mod capture;
 mod cpu;
-mod cpuset;
 mod interrupts;
 mod load;
 mod machine;
@@ -13,7 +12,7 @@ use std::path::PathBuf;
 
 pub use capture::{Capture, capture};
 pub use cpu::{Cache, CpuInfo, IdleState};
-pub use cpuset::CpuSet;
+pub use hpcd_core::CpuSet;
 pub use interrupts::IrqLine;
 pub use load::{Load, LoadCounters, read_load};
 pub use machine::Machine;

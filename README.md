@@ -581,6 +581,7 @@ hpcd/
 │  ├─ hpcd-core/     shared types: Target, Finding, Plan, Lease, IPC messages
 │  ├─ hpcd-probe/    read-only collectors for /proc, /sys and eBPF
 │  ├─ hpcd-rules/    rule loader, validation and the check/action registry
+│  ├─ hpcd-fix/      applies and reverts changes, snapshots persisted before every write
 │  └─ hpcctl/        client binary: CLI and MCP server
 ├─ rules/
 │  ├─ _template.toml
@@ -591,8 +592,7 @@ hpcd/
 └─ docs/
 ```
 
-`hpcd-fix` (actions, snapshots, revert) and `hpcd-daemon` (IPC, policy, leases, profiles)
-are added in v0.3.
+`hpcd-daemon` (IPC, policy, leases, profiles) is added in v0.3.
 
 ## Roadmap
 
@@ -601,7 +601,7 @@ Each version is useful on its own.
 - [x] **v0.1 — Audit.** `hpcctl audit` and `explain`, rule format, conflict rules, firmware
       rules that need no root, `capture` and offline `audit --snapshot`, fixture tests.
       Read-only, no daemon.
-- [ ] **v0.2 — Measure.** eBPF run-queue latency, stability check, confidence intervals,
+- [x] **v0.2 — Measure.** eBPF run-queue latency, stability check, confidence intervals,
       guardrail metrics (throughput, CPU, power, memory), self-reported overhead,
       `hpcctl measure --assert`, SMI detection. Read-only MCP tools.
 - [ ] **v0.3 — Fix.** Daemon, policy, snapshots, leases, interactive fixes with before/after

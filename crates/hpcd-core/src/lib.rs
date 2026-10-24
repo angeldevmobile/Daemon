@@ -1,7 +1,13 @@
+mod change;
+mod cpuset;
+
 use std::fmt;
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+pub use change::{Change, Plan};
+pub use cpuset::CpuSet;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

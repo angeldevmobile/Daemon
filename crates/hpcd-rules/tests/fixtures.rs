@@ -157,3 +157,43 @@ fn remote_numa_memory() {
     assert_eq!(f.evidence[0].excerpt, "N0=590 N1=410 pages");
     assert!(!f.fixable_at_runtime);
 }
+
+#[test]
+fn plans_the_order_gateway_fixes() {
+    let rules = hpcd_rules::load_dir(&rules_dir()).unwrap();
+    let source = Source::snapshot(rules_dir().join("tests/order-gateway")).unwrap();
+    let obs = hpcd_probe::observe(&source, &Target::Unit("order-gateway.service".into())).unwrap();
+    let findings = hpcd_rules::evaluate(&rules, &obs).unwrap();
+    let planned = hpcd_rules::plan(&rules, &findings, &obs);
+
+    let summaries: Vec<(&str, String)> = planned
+        .iter()
+        .map(|p| (p.rule_id.as_str(), p.plan.as_ref().unwrap().summary.clone()))
+        .collect();
+    assert_eq!(
+        summaries,
+        [
+            ("irq-on-hot-core", "move eth0 (rx-0..3) IRQs to cores 2,6".to_string()),
+            ("deep-cstates", "hold /dev/cpu_dma_latency at 0".into()),
+            ("powersave-governor", "'performance' on core 3".into()),
+            ("thread-migration", "pin thread 4823 to core 3".into()),
+            ("smt-sibling-busy", "move other work off core 7".into()),
+            (
+                "isolcpus-missing",
+                "add isolcpus=managed_irq,domain,3 nohz_full=3 rcu_nocbs=3 to the kernel command line"
+                    .into()
+            ),
+        ]
+    );
+
+    let irq = planned[0].plan.as_ref().unwrap();
+    assert_eq!(irq.changes.len(), 4);
+    assert_eq!(irq.changes[0].to_string(), "IRQ 142 → cpus 2,6");
+    assert_eq!(
+        irq.conflicts,
+        [
+            "irqbalance is active · Ban the affected IRQs or the hot cores in irqbalance, or it will undo this fix"
+        ]
+    );
+    assert!(planned[5].plan.as_ref().unwrap().reboot);
+}

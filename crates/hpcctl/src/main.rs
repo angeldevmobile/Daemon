@@ -48,6 +48,20 @@ enum Command {
     },
     /// Show the full explanation and references for a rule.
     Explain { rule: String },
+    /// Plan fixes for a workload. Applying them needs the hpcd daemon (coming in v0.3).
+    Fix {
+        #[command(flatten)]
+        target: TargetArgs,
+        /// Show what would change, without changing anything.
+        #[arg(long)]
+        dry_run: bool,
+        /// Plan against a capture directory instead of the live system.
+        #[arg(long)]
+        snapshot: Option<PathBuf>,
+        /// Seconds to sample the live system for rates and CPU usage.
+        #[arg(long, default_value_t = 3)]
+        sample: u64,
+    },
     /// Capture /proc and /sys data for offline audit.
     Capture {
         #[command(flatten)]
@@ -138,20 +152,28 @@ fn main() -> Result<()> {
             firmware,
             sample,
         } => {
-            let source = match snapshot {
-                Some(dir) => Source::snapshot(&dir)
-                    .with_context(|| format!("opening capture {}", dir.display()))?,
-                None if !cfg!(target_os = "linux") => {
-                    bail!("live audit needs Linux; use --snapshot <dir> to audit a capture")
-                }
-                None => Source::live(Duration::from_secs(sample)),
-            };
+            let source = source(snapshot, sample)?;
             let text = audit_report(
                 cli.rules.as_deref(),
                 &target.into_target(),
                 source,
                 firmware,
             )?;
+            anstream::println!("{text}");
+        }
+        Command::Fix {
+            target,
+            dry_run,
+            snapshot,
+            sample,
+        } => {
+            if !dry_run {
+                bail!(
+                    "applying fixes needs the hpcd daemon, which is not built yet; use --dry-run to see the plan"
+                );
+            }
+            let source = source(snapshot, sample)?;
+            let text = fix_report(cli.rules.as_deref(), &target.into_target(), source)?;
             anstream::println!("{text}");
         }
         Command::Explain { rule } => {
@@ -200,6 +222,33 @@ fn main() -> Result<()> {
         }
     }
     Ok(())
+}
+
+fn source(snapshot: Option<PathBuf>, sample: u64) -> Result<Source> {
+    match snapshot {
+        Some(dir) => {
+            Source::snapshot(&dir).with_context(|| format!("opening capture {}", dir.display()))
+        }
+        None if !cfg!(target_os = "linux") => {
+            bail!("the live system needs Linux; use --snapshot <dir> to read a capture")
+        }
+        None => Ok(Source::live(Duration::from_secs(sample))),
+    }
+}
+
+fn fix_report(rules_dir: Option<&Path>, target: &Target, source: Source) -> Result<String> {
+    let rules: Vec<Rule> = load_rules(rules_dir)?
+        .into_iter()
+        .filter(|r| r.category != Category::Firmware)
+        .collect();
+    let obs = hpcd_probe::observe(&source, target)?;
+    let findings = hpcd_rules::evaluate(&rules, &obs)?;
+    let planned = hpcd_rules::plan(&rules, &findings, &obs);
+    Ok(render::fix_plan(
+        &target.to_string(),
+        pid_qualifier(target, &obs.pids).as_deref(),
+        &planned,
+    ))
 }
 
 fn audit_report(

@@ -4,14 +4,22 @@
 
 | Crate | Role | Depends on |
 |---|---|---|
-| `hpcd-core` | Shared types: `Target`, `Finding`, `Severity`, later `Plan`, `Lease`, IPC messages | — |
+| `hpcd-core` | Shared types: `Target`, `Finding`, `Severity`, `CpuSet`, `Change`; later `Lease` and IPC messages | — |
 | `hpcd-probe` | Read-only collectors. Everything reads through `SysRoot`, so live systems and captures share one code path | `hpcd-core` |
 | `hpcd-rules` | Rule loading and validation, checks, registry of checks and actions | `hpcd-core`, `hpcd-probe` |
+| `hpcd-fix` | Applies and reverts `Change`s: snapshot, journal on disk, write, verify | `hpcd-core` |
 | `hpcctl` | CLI and read-only MCP server (`hpcctl mcp`); later the daemon client | all of the above |
 | `jitter-demo` | A periodic loop that shows jitter, for demos and end-to-end tests | — |
 
-Added in v0.3: `hpcd-fix` (actions, snapshots, revert) and `hpcd-daemon` (IPC, policy,
-leases, profiles).
+Coming in v0.3: `hpcd-daemon` (IPC, policy, leases, profiles).
+
+## Applying a change
+
+`hpcd-fix` applies a set of changes all or nothing. For each change it reads the current
+value, saves it to the journal (one JSON file per set, written with rename so it is never
+half-written), writes the new value and reads it back. If the kernel keeps another value, or
+any step fails, the changes already made are restored and the journal entry is removed.
+On start, any journal entry left by a crash is restored before anything else happens.
 
 ## Boundaries
 

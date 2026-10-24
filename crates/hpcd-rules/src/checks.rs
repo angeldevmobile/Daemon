@@ -13,7 +13,7 @@ pub struct Hit {
     pub evidence: Vec<Evidence>,
 }
 
-fn params<T: DeserializeOwned>(table: &toml::Table) -> Result<T, String> {
+pub(crate) fn params<T: DeserializeOwned>(table: &toml::Table) -> Result<T, String> {
     toml::Value::Table(table.clone())
         .try_into()
         .map_err(|e: toml::de::Error| e.message().to_string())
@@ -531,12 +531,12 @@ fn hot_threads_target(target: &str) -> Result<(), String> {
     }
 }
 
-fn cores_phrase(cores: &CpuSet) -> String {
+pub(crate) fn cores_phrase(cores: &CpuSet) -> String {
     let single = cores.iter().count() == 1;
     format!("{} {cores}", if single { "core" } else { "cores" })
 }
 
-fn irq_names(names: &[&str]) -> String {
+pub(crate) fn irq_names(names: &[&str]) -> String {
     fn split(n: &str) -> Option<(&str, &str, u32)> {
         let (device, queue) = n.split_once('-')?;
         let (kind, index) = queue.rsplit_once('-')?;

@@ -1,8 +1,10 @@
 use hpcd_probe::Observation;
 
-use crate::{Hit, Rule, checks};
+use crate::plan::{self, Draft};
+use crate::{Fix, Hit, Rule, checks};
 
 pub type CheckFn = fn(&Rule, &Observation) -> Result<Option<Hit>, String>;
+pub type PlanFn = fn(&Rule, &Fix, &Observation) -> Result<Draft, String>;
 
 pub struct Check {
     pub name: &'static str,
@@ -14,6 +16,7 @@ pub struct Action {
     pub name: &'static str,
     pub description: &'static str,
     pub revert: &'static str,
+    pub plan: PlanFn,
 }
 
 pub const CHECKS: &[Check] = &[
@@ -84,31 +87,37 @@ pub const ACTIONS: &[Action] = &[
         name: "set_irq_affinity",
         description: "Set the CPU affinity of IRQs",
         revert: "restore each IRQ's previous smp_affinity_list",
+        plan: plan::set_irq_affinity,
     },
     Action {
         name: "hold_cpu_dma_latency",
         description: "Hold a PM QoS latency request on /dev/cpu_dma_latency",
         revert: "close /dev/cpu_dma_latency, releasing the request",
+        plan: plan::hold_cpu_dma_latency,
     },
     Action {
         name: "set_cpufreq_governor",
         description: "Set the scaling governor on selected cores",
         revert: "restore each core's previous scaling_governor",
+        plan: plan::set_cpufreq_governor,
     },
     Action {
         name: "propose_kernel_cmdline",
         description: "Propose kernel command line parameters; never applied",
         revert: "nothing is applied; remove the parameters and reboot to undo",
+        plan: plan::propose_kernel_cmdline,
     },
     Action {
         name: "pin_thread",
         description: "Pin a thread to one core with sched_setaffinity",
         revert: "restore the thread's previous CPU affinity",
+        plan: plan::pin_thread,
     },
     Action {
         name: "move_tasks_off_cpu",
         description: "Move movable tasks off a core by narrowing their affinity",
         revert: "restore each moved task's previous CPU affinity",
+        plan: plan::move_tasks_off_cpu,
     },
 ];
 

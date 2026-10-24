@@ -314,6 +314,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hpcd-fix"
+version = "0.0.1"
+dependencies = [
+ "hpcd-core",
+ "libc",
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "hpcd-measure"
 version = "0.0.1"
 dependencies = [
