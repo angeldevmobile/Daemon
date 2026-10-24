@@ -45,22 +45,17 @@ fn offset(field: &u32) -> usize {
 
 #[inline(always)]
 fn learn_global(prev: u32) {
-    if unsafe { GLOBAL.get(&prev) }.is_some() {
+    let ino = unsafe { core::ptr::read_volatile(&PIDNS_INO) };
+    if ino == 0 || unsafe { GLOBAL.get(&prev) }.is_some() {
         return;
     }
-    let ino = unsafe { core::ptr::read_volatile(&PIDNS_INO) };
-    let tid = if ino == 0 {
-        prev
-    } else {
-        let dev = unsafe { core::ptr::read_volatile(&PIDNS_DEV) };
-        let mut info = bpf_pidns_info { pid: 0, tgid: 0 };
-        let size = core::mem::size_of::<bpf_pidns_info>() as u32;
-        if unsafe { bpf_get_ns_current_pid_tgid(dev, ino, &mut info, size) } != 0 {
-            return;
-        }
-        info.pid
-    };
-    if unsafe { TARGETS.get(&tid) }.is_some() {
+    let dev = unsafe { core::ptr::read_volatile(&PIDNS_DEV) };
+    let mut info = bpf_pidns_info { pid: 0, tgid: 0 };
+    let size = core::mem::size_of::<bpf_pidns_info>() as u32;
+    if unsafe { bpf_get_ns_current_pid_tgid(dev, ino, &mut info, size) } != 0 {
+        return;
+    }
+    if unsafe { TARGETS.get(&info.pid) }.is_some() {
         let _ = GLOBAL.insert(&prev, &1, 0);
     }
 }

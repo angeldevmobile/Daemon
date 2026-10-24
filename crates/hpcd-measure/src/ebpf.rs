@@ -14,6 +14,7 @@ use crate::{BLOCK, Counters, EbpfCost, Histogram, Load, MeasureError, Measuremen
 static PROGRAM: &[u8] = include_bytes_aligned!(concat!(env!("OUT_DIR"), "/hpcd-ebpf"));
 
 const EVENTS: [&str; 3] = ["sched_wakeup", "sched_wakeup_new", "sched_switch"];
+const ROOT_PIDNS_INO: u64 = 0xEFFF_FFFC;
 const TRACEFS: [&str; 2] = ["/sys/kernel/tracing", "/sys/kernel/debug/tracing"];
 
 fn field_offset(event: &str, field: &str) -> Option<u32> {
@@ -41,6 +42,14 @@ fn raise_memlock() {
     unsafe { libc::setrlimit(libc::RLIMIT_MEMLOCK, &unlimited) };
 }
 
+fn pid_namespace() -> (u64, u64) {
+    std::fs::metadata("/proc/self/ns/pid")
+        .map(|m| (m.dev(), m.ino()))
+        .ok()
+        .filter(|(_, ino)| *ino != ROOT_PIDNS_INO)
+        .unwrap_or((0, 0))
+}
+
 fn load() -> Result<Ebpf, MeasureError> {
     raise_memlock();
     let offsets = [
@@ -65,9 +74,7 @@ fn load() -> Result<Ebpf, MeasureError> {
     for (name, value) in &offsets {
         loader.override_global(name, value, true);
     }
-    let (dev, ino) = std::fs::metadata("/proc/self/ns/pid")
-        .map(|m| (m.dev(), m.ino()))
-        .unwrap_or((0, 0));
+    let (dev, ino) = pid_namespace();
     loader.override_global("PIDNS_DEV", &dev, true);
     loader.override_global("PIDNS_INO", &ino, true);
     let mut ebpf = loader.load(PROGRAM).map_err(|e| {
@@ -130,8 +137,13 @@ pub fn run(
         ebpf.take_map(name)
             .ok_or_else(|| ebpf_err(name)("map missing from object".into()))
     };
-    let mut targets: HashMap<MapData, u32, u8> = HashMap::try_from(take(&mut ebpf, "TARGETS")?)
-        .map_err(|e| ebpf_err("TARGETS")(e.to_string()))?;
+    let map = if pid_namespace().1 == 0 {
+        "GLOBAL"
+    } else {
+        "TARGETS"
+    };
+    let mut targets: HashMap<MapData, u32, u8> =
+        HashMap::try_from(take(&mut ebpf, map)?).map_err(|e| ebpf_err(map)(e.to_string()))?;
     let hist: PerCpuArray<MapData, u64> = PerCpuArray::try_from(take(&mut ebpf, "HIST")?)
         .map_err(|e| ebpf_err("HIST")(e.to_string()))?;
     let counters: PerCpuArray<MapData, u64> = PerCpuArray::try_from(take(&mut ebpf, "COUNTERS")?)

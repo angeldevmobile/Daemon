@@ -9,8 +9,8 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 > **Dónde nos quedamos (2026-10-23):** `measure` tiene chequeo de estabilidad, `--wait-stable` y
 > métricas de guardrails (cpu, power, rss, faults, numa misses) y su propio overhead, probado en
 > WSL. `audit --firmware` detecta SMIs (`smi-activity`), probado con la captura; falta probarlo
-> en una máquina física Intel. Lo siguiente: bajar el costo por evento del programa eBPF y
-> después las herramientas MCP de solo lectura. Los límites de `policy.toml` se
+> en una máquina física Intel. El costo de eBPF se revisó: en WSL casi todo es fijo de la VM.
+> Lo siguiente: herramientas MCP de solo lectura (último punto de v0.2). Los límites de `policy.toml` se
 > aplican en v0.3 con `fix`. `--metric` y `--bench` quedan para cuando exista `fix --auto`.
 
 | Pieza | Estado |
@@ -30,7 +30,8 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | Métricas de guardrails en `measure`: cpu, power (RAPL), rss, faults, numa misses | ✅ probado en WSL (sin RAPL ni NUMA) |
 | Overhead propio en `measure` (CPU de hpcctl + tiempo de eBPF, ns por evento, RSS) | ✅ probado en WSL |
 | Detección de SMI: regla `smi-activity` (firmware, HIGH) con `MSR_SMI_COUNT` | ✅ con fixture · sin probar en vivo (WSL no tiene `msr`) |
-| Herramientas MCP de solo lectura | ❌ |
+| Costo de eBPF: sin traducción de PID en el namespace raíz | ✅ (en WSL no aplica) |
+| Herramientas MCP de solo lectura | ❌ siguiente |
 | Set inicial completo: `irq-on-hot-core`, `deep-cstates`, `powersave-governor`, `thread-migration`, `smt-sibling-busy`, `remote-numa-memory`, `isolcpus-missing` | ✅ con fixture |
 | Firmware sin root: `smt-enabled`, `sub-numa-clustering` | ✅ |
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
@@ -66,6 +67,18 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-23 · Costo del programa eBPF
+
+- Medido por programa en WSL: `sched_wakeup` ~900ns, `sched_switch` ~720ns–1.2µs por evento.
+  Con `sched_wakeup` vacío (solo `return 0`) cuesta ~500ns: casi todo el costo en WSL es fijo
+  (la VM y las propias estadísticas de eBPF), y entre corridas varía ±300ns.
+- Cambio: en el namespace de PID raíz (máquina normal, sin contenedor) `hpcctl` escribe los hilos
+  del target directo en `GLOBAL` y `learn_global` sale enseguida: sin
+  `bpf_get_ns_current_pid_tgid` ni búsquedas en `TARGETS`/`GLOBAL` en cada `sched_switch`.
+- En contenedores y WSL se sigue traduciendo. Un caché negativo ahorraría ~50ns a cambio de
+  bastante complejidad (invalidarlo al agregar hilos); no se hizo.
+- El camino del namespace raíz no se puede probar en WSL; queda para la máquina física.
 
 ### 2026-10-23 · Detección de SMI (`smi-activity`)
 
@@ -332,12 +345,11 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. v0.2, siguiente: bajar el costo del programa eBPF (punto 6) y herramientas MCP de solo
-   lectura.
+1. v0.2, siguiente: herramientas MCP de solo lectura.
 2. Probar en una máquina física cuando haya una a mano.
 3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
 4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
 5. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
-6. Bajar el costo por evento del programa eBPF (ver registro del overhead propio).
+6. Medir el costo por evento de eBPF en una máquina física (namespace raíz).
 7. `smi-activity`: correlacionar los SMIs con picos de p99, como en la pantalla 12.
 8. Probar `smi-activity` en una máquina física Intel.
