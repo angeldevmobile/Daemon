@@ -1,4 +1,5 @@
 mod banner;
+mod client;
 mod inspect;
 mod mcp;
 mod render;
@@ -10,7 +11,8 @@ use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, CommandFactory, Parser, Subcommand};
-use hpcd_core::Target;
+use hpcd_core::ipc::{Request, Response};
+use hpcd_core::{Target, parse_duration};
 use hpcd_measure::{Assertion, Plan};
 use hpcd_probe::Source;
 use hpcd_rules::{Category, Rule, registry};
@@ -48,13 +50,19 @@ enum Command {
     },
     /// Show the full explanation and references for a rule.
     Explain { rule: String },
-    /// Plan fixes for a workload. Applying them needs the hpcd daemon (coming in v0.3).
+    /// Plan fixes for a workload, or apply one through the hpcd daemon under a lease.
     Fix {
         #[command(flatten)]
         target: TargetArgs,
         /// Show what would change, without changing anything.
         #[arg(long)]
         dry_run: bool,
+        /// Apply this rule's fix through the daemon, e.g. thread-migration.
+        #[arg(long, conflicts_with_all = ["dry_run", "snapshot"])]
+        rule: Option<String>,
+        /// How long the change lasts unless committed, e.g. "10m" (default from policy.toml).
+        #[arg(long, value_name = "DURATION", value_parser = parse_duration, requires = "rule")]
+        lease: Option<Duration>,
         /// Plan against a capture directory instead of the live system.
         #[arg(long)]
         snapshot: Option<PathBuf>,
@@ -104,6 +112,12 @@ enum Command {
         #[arg(long, default_value_t = 3)]
         sample: u64,
     },
+    /// Show the open leases held by the hpcd daemon.
+    Status,
+    /// Keep the change of a lease instead of letting it expire.
+    Commit { lease: u64 },
+    /// Undo the change of a lease now.
+    Revert { lease: u64 },
     /// List the checks rules can use.
     Checks,
     /// List the actions rules can use.
@@ -164,17 +178,52 @@ fn main() -> Result<()> {
         Command::Fix {
             target,
             dry_run,
+            rule,
+            lease,
             snapshot,
             sample,
         } => {
-            if !dry_run {
+            let target = target.into_target();
+            if let Some(rule) = rule {
+                let request = Request::Apply {
+                    target,
+                    rule,
+                    lease_secs: lease.map(|d| d.as_secs()),
+                };
+                if let Response::Applied { lease } = client::call(&request)? {
+                    anstream::println!("{}", render::applied(&lease));
+                }
+            } else if dry_run {
+                let source = source(snapshot, sample)?;
+                let text = fix_report(cli.rules.as_deref(), &target, source)?;
+                anstream::println!("{text}");
+            } else {
                 bail!(
-                    "applying fixes needs the hpcd daemon, which is not built yet; use --dry-run to see the plan"
+                    "use --dry-run to see the plan, then --rule <id> to apply one fix under a lease"
                 );
             }
-            let source = source(snapshot, sample)?;
-            let text = fix_report(cli.rules.as_deref(), &target.into_target(), source)?;
-            anstream::println!("{text}");
+        }
+        Command::Status => {
+            if let Response::Status { leases } = client::call(&Request::Status)? {
+                anstream::println!("{}", render::leases(&leases));
+            }
+        }
+        Command::Commit { lease } => {
+            client::call(&Request::Commit { lease })?;
+            anstream::println!(
+                "{}",
+                style::paint(
+                    style::OK_BOLD,
+                    format!("✔ lease {lease} committed · the change stays until reboot")
+                )
+            );
+        }
+        Command::Revert { lease } => {
+            client::call(&Request::Revert { lease })?;
+            anstream::println!(
+                "{}",
+                style::paint(style::OK_BOLD, format!("✔ lease {lease} reverted"))
+            );
         }
         Command::Explain { rule } => {
             let rules = load_rules(cli.rules.as_deref())?;
@@ -302,20 +351,6 @@ fn audit_report(
         );
     }
     Ok(text)
-}
-
-fn parse_duration(s: &str) -> std::result::Result<Duration, String> {
-    let (number, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len()));
-    let n: u64 = number
-        .parse()
-        .map_err(|_| format!("'{s}': expected something like 30s, 10m or 1h"))?;
-    let secs = match unit {
-        "" | "s" => n,
-        "m" => n * 60,
-        "h" => n * 3600,
-        _ => return Err(format!("'{s}': unit must be s, m or h")),
-    };
-    Ok(Duration::from_secs(secs))
 }
 
 fn measure_report(

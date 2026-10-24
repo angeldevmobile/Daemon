@@ -304,6 +304,23 @@ name = "hpcd-core"
 version = "0.0.1"
 dependencies = [
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "hpcd-daemon"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "clap",
+ "hpcd-core",
+ "hpcd-fix",
+ "hpcd-probe",
+ "hpcd-rules",
+ "libc",
+ "serde",
+ "serde_json",
+ "toml",
 ]
 
 [[package]]

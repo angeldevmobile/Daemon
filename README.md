@@ -416,7 +416,7 @@ this project can receive.
  │ hpcctl mcp │     │ hpcctl (CLI)│                          unprivileged
  └─────┬──────┘     └──────┬──────┘
        └─────────┬─────────┘
-     Unix socket · bincode · SO_PEERCRED
+     Unix socket · JSON lines · SO_PEERCRED
                  │
         ┌────────▼────────┐
         │      hpcd       │                                  privileged
@@ -582,6 +582,7 @@ hpcd/
 │  ├─ hpcd-probe/    read-only collectors for /proc, /sys and eBPF
 │  ├─ hpcd-rules/    rule loader, validation and the check/action registry
 │  ├─ hpcd-fix/      applies and reverts changes, snapshots persisted before every write
+│  ├─ hpcd-daemon/   the hpcd binary: socket, policy, leases
 │  └─ hpcctl/        client binary: CLI and MCP server
 ├─ rules/
 │  ├─ _template.toml
@@ -592,7 +593,7 @@ hpcd/
 └─ docs/
 ```
 
-`hpcd-daemon` (IPC, policy, leases, profiles) is added in v0.3.
+Profiles that survive a reboot come in v0.4.
 
 ## Roadmap
 

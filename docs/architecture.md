@@ -8,10 +8,22 @@
 | `hpcd-probe` | Read-only collectors. Everything reads through `SysRoot`, so live systems and captures share one code path | `hpcd-core` |
 | `hpcd-rules` | Rule loading and validation, checks, registry of checks and actions | `hpcd-core`, `hpcd-probe` |
 | `hpcd-fix` | Applies and reverts `Change`s: snapshot, journal on disk, write, verify | `hpcd-core` |
+| `hpcd-daemon` | The `hpcd` binary: Unix socket, `SO_PEERCRED`, `policy.toml`, leases. The only program that links `hpcd-fix` | `hpcd-core`, `hpcd-probe`, `hpcd-rules`, `hpcd-fix` |
 | `hpcctl` | CLI and read-only MCP server (`hpcctl mcp`); later the daemon client | all of the above |
 | `jitter-demo` | A periodic loop that shows jitter, for demos and end-to-end tests | — |
 
-Coming in v0.3: `hpcd-daemon` (IPC, policy, leases, profiles).
+## Daemon protocol
+
+`hpcctl` connects to `/run/hpcd/hpcd.sock` and sends one JSON object per line
+(`hpcd_core::ipc::Request`); the daemon answers with one line (`Response`). The daemon reads
+the caller's uid with `SO_PEERCRED`. Root, the daemon's own user and members of the groups in
+`[access]` of `policy.toml` may apply, commit and revert; anyone may read the status.
+
+A client asks for a rule on a target, never for raw changes: the daemon observes the system,
+evaluates the rule and plans the changes itself. Every applied plan is a lease. A lease that is
+not committed is reverted when it expires, when the daemon stops, or, after a crash, when it
+starts again. Two open leases never touch the same IRQ, governor, thread or
+`/dev/cpu_dma_latency`.
 
 ## Applying a change
 

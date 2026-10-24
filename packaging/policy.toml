@@ -1,5 +1,12 @@
 # Default hpcd policy. Conservative: changes need a human, noise injection is off.
 
+[access]
+groups = ["hpcd"]         # members may apply fixes; root always can; everyone may read status
+
+[leases]
+default = "5m"            # changes are reverted unless committed within this time
+max     = "1h"
+
 [mode]
 default = "interactive"   # dry-run | interactive | auto
 

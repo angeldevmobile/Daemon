@@ -1,13 +1,29 @@
 mod change;
 mod cpuset;
+pub mod ipc;
 
 use std::fmt;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
 pub use change::{Change, Plan};
 pub use cpuset::CpuSet;
+
+pub fn parse_duration(s: &str) -> Result<Duration, String> {
+    let (number, unit) = s.split_at(s.find(|c: char| !c.is_ascii_digit()).unwrap_or(s.len()));
+    let n: u64 = number
+        .parse()
+        .map_err(|_| format!("'{s}': expected something like 30s, 10m or 1h"))?;
+    let secs = match unit {
+        "" | "s" => n,
+        "m" => n * 60,
+        "h" => n * 3600,
+        _ => return Err(format!("'{s}': unit must be s, m or h")),
+    };
+    Ok(Duration::from_secs(secs))
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

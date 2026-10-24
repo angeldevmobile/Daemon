@@ -172,7 +172,7 @@ impl Server {
             })
             .unwrap_or_default();
         let wait_stable = match args["wait_stable"].as_str() {
-            Some(s) => Some(crate::parse_duration(s).map_err(anyhow::Error::msg)?),
+            Some(s) => Some(hpcd_core::parse_duration(s).map_err(anyhow::Error::msg)?),
             None => None,
         };
         let (text, code) = measure_report(

@@ -2,6 +2,7 @@ use anstyle::Style;
 use hpcd_core::Finding;
 use std::time::Duration;
 
+use hpcd_core::ipc::LeaseInfo;
 use hpcd_measure::{
     Drift, Estimate, Guardrails, Overhead, Signal, Window, format_limit, format_ns, format_range,
 };
@@ -147,21 +148,7 @@ pub fn fix_plan(subject: &str, qualifier: Option<&str>, planned: &[Planned]) -> 
                     paint(style::risk(plan.risk), plan.risk)
                 );
                 out.push(line);
-                for c in plan.changes.iter().take(MAX_CHANGES) {
-                    out.push(paint(style::DIM, format!("{indent}{c}")));
-                }
-                if plan.changes.len() > MAX_CHANGES {
-                    out.push(paint(
-                        style::DIM,
-                        format!("{indent}… {} more", plan.changes.len() - MAX_CHANGES),
-                    ));
-                }
-                if let Some(note) = &plan.note {
-                    out.push(paint(style::DIM, format!("{indent}{note}")));
-                }
-                for c in &plan.conflicts {
-                    out.push(format!("{indent}{} {}", paint(style::WARN, "⚠"), c));
-                }
+                plan_details(&mut out, plan);
             }
             Err(e) => {
                 out.push(line);
@@ -195,6 +182,97 @@ pub fn fix_plan(subject: &str, qualifier: Option<&str>, planned: &[Planned]) -> 
         ),
     ));
     out.join("\n")
+}
+
+fn plan_details(out: &mut Vec<String>, plan: &hpcd_core::Plan) {
+    let indent = "      ";
+    for c in plan.changes.iter().take(MAX_CHANGES) {
+        out.push(paint(style::DIM, format!("{indent}{c}")));
+    }
+    if plan.changes.len() > MAX_CHANGES {
+        out.push(paint(
+            style::DIM,
+            format!("{indent}… {} more", plan.changes.len() - MAX_CHANGES),
+        ));
+    }
+    if let Some(note) = &plan.note {
+        out.push(paint(style::DIM, format!("{indent}{note}")));
+    }
+    for c in &plan.conflicts {
+        out.push(format!("{indent}{} {c}", paint(style::WARN, "⚠")));
+    }
+}
+
+pub fn applied(lease: &LeaseInfo) -> String {
+    let mut out = vec![format!(
+        "{} {} → {}{}",
+        paint(style::OK_BOLD, "✔ applied"),
+        paint(style::ID, &lease.plan.rule_id),
+        lease.plan.summary,
+        paint(
+            style::DIM,
+            format!(
+                " · lease {} · expires in {}",
+                lease.id,
+                elapsed(Duration::from_secs(lease.expires_in_secs))
+            )
+        )
+    )];
+    plan_details(&mut out, &lease.plan);
+    out.push(String::new());
+    out.push(format!(
+        "{}{}{}{}",
+        paint(style::ID, format!("hpcctl commit {}", lease.id)),
+        paint(style::DIM, " to keep it · "),
+        paint(style::ID, format!("hpcctl revert {}", lease.id)),
+        paint(style::DIM, " to undo it now"),
+    ));
+    out.join(
+        "
+",
+    )
+}
+
+pub fn leases(leases: &[LeaseInfo]) -> String {
+    if leases.is_empty() {
+        return format!(
+            "{}{}",
+            paint(style::ACCENT, "hpcd status"),
+            paint(style::DIM, " · no open leases")
+        );
+    }
+    let mut out = vec![
+        format!(
+            "{}{}",
+            paint(style::ACCENT, "hpcd status"),
+            paint(
+                style::DIM,
+                format!(" · {}", plural(leases.len(), "open lease", "open leases"))
+            )
+        ),
+        String::new(),
+    ];
+    for l in leases {
+        out.push(format!(
+            "  {} {} → {}{}",
+            paint(style::DIM, format!("lease {}", l.id)),
+            paint(style::ID, &l.plan.rule_id),
+            l.plan.summary,
+            paint(
+                style::DIM,
+                format!(
+                    " · {} · uid {} · expires in {}",
+                    l.target,
+                    l.uid,
+                    elapsed(Duration::from_secs(l.expires_in_secs))
+                )
+            )
+        ));
+    }
+    out.join(
+        "
+",
+    )
 }
 
 pub fn audit(

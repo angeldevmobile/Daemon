@@ -6,9 +6,9 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 
 **Versión en curso:** v0.3 — Fix (v0.2 — Measure ✅, v0.1 — Audit ✅)
 
-> **Dónde nos quedamos (2026-10-23):** v0.3 partes 1 y 2 hechas: `hpcd-fix` aplica y revierte
-> cambios, y `hpcctl fix --dry-run` muestra el plan de cada regla. Lo siguiente es la parte 3:
-> el daemon `hpcd` (socket Unix, `SO_PEERCRED`, `policy.toml`, leases).
+> **Dónde nos quedamos (2026-10-23):** v0.3 partes 1–3 hechas: `hpcd-fix`, `fix --dry-run` y el
+> daemon `hpcd` con leases (`fix --rule`, `status`, `commit`, `revert`), probado en WSL. Lo
+> siguiente es la parte 4: `fix --interactive`, que mide antes y después de cada fix.
 
 | Pieza | Estado |
 |---|---|
@@ -34,8 +34,9 @@ Registro de lo que se va haciendo en hpcd. Lo más reciente arriba.
 | Reglas de conflictos: `irqbalance-active`, `tuned-active` | ✅ |
 | v0.3 parte 1: `hpcd-fix` (cambios con snapshot, journal, verificación, rollback, recuperación) | ✅ probado en WSL |
 | v0.3 parte 2: `hpcctl fix --dry-run` (planificadores por acción, conflictos activos) | ✅ probado en WSL |
-| v0.3 parte 3: daemon `hpcd` | ❌ siguiente |
-| v0.3 partes 4–6: `fix --interactive`, MCP de acción, `hpcctl run` | ❌ |
+| v0.3 parte 3: daemon `hpcd` (socket, `SO_PEERCRED`, policy, leases) y `fix --rule`, `status`, `commit`, `revert` | ✅ probado en WSL |
+| v0.3 parte 4: `fix --interactive` | ❌ siguiente |
+| v0.3 partes 5–6: MCP de acción, `hpcctl run` | ❌ |
 | Reglas de conflictos restantes (`systemd-cpuaffinity`, `cpuset-restricted`, `k8s-cpu-manager`) | ❌ |
 
 ## Cómo probar
@@ -68,6 +69,29 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 ```
 
 ## Registro
+
+### 2026-10-23 · v0.3 parte 3: el daemon `hpcd`
+
+- Nuevo crate `hpcd-daemon` (binario `hpcd`), el único que enlaza `hpcd-fix`.
+- Protocolo: JSON por líneas sobre `/run/hpcd/hpcd.sock` (`hpcd_core::ipc`), una petición por
+  conexión. El README decía bincode; se cambió porque `bincode` está declarado sin mantenimiento
+  (aviso de RustSec, 2025) y `serde_json` ya estaba.
+- El cliente pide una regla sobre un objetivo, nunca cambios: el daemon observa, evalúa y
+  planifica. Así un cliente autorizado no puede mandar cambios arbitrarios.
+- Quién puede actuar (`SO_PEERCRED`): root, el usuario del daemon y los miembros de los grupos de
+  `[access]` en `policy.toml` (por defecto `hpcd`). Cualquiera puede ver el estado; commit y
+  revert solo el dueño del lease o root. `policy.toml` gana `[access]` y `[leases]` (5m, máx 1h).
+- Leases: si no se hace commit, se revierte al vencer, al parar el daemon (SIGTERM/SIGINT/SIGHUP,
+  con `sigwait`) o, tras una caída, al arrancar (journal de `hpcd-fix`). El hilo de vencimientos
+  duerme hasta el próximo, sin sondeo. Dos leases no pueden tocar el mismo recurso. Un `--pid`
+  no se puede commitear.
+- `sd_notify` READY=1 para la unidad `Type=notify`, sin dependencias.
+- `hpcctl`: `fix --rule <id> [--lease 10m]`, `status`, `commit <n>`, `revert <n>`. Sin `--rule`
+  ni `--dry-run`, `fix` explica qué usar. `parse_duration` pasa a `hpcd-core`.
+- Commit en v0.3: el cambio queda hasta reiniciar; perfiles que sobrevivan reinicios son de v0.4.
+- Probado en WSL con el daemon como usuario normal: aplicar `thread-migration` a `jitter-demo
+  --noise` con lease de 6s, ver el estado, commit rechazado por ser `--pid`, vencimiento que
+  revierte, y SIGTERM que revierte un lease de 1h.
 
 ### 2026-10-23 · v0.3 parte 2: `hpcctl fix --dry-run`
 
@@ -405,11 +429,12 @@ hpcctl audit --unit order-gateway.service --snapshot rules/tests/order-gateway
 
 ## Pendiente / próximos pasos
 
-1. v0.3 parte 3: daemon `hpcd`.
-2. Probar en una máquina física cuando haya una a mano.
-3. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
-4. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
-5. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
-6. Medir el costo por evento de eBPF en una máquina física (namespace raíz).
-7. `smi-activity`: correlacionar los SMIs con picos de p99, como en la pantalla 12.
-8. Probar `smi-activity` en una máquina física Intel.
+1. v0.3 parte 4: `fix --interactive` (medición antes/después y guardrails).
+2. Probar el daemon como servicio systemd real (`Type=notify`, grupo `hpcd`).
+3. Probar en una máquina física cuando haya una a mano.
+4. `capture --show`: ordenar rutas numéricamente (`/proc/8` antes que `/proc/24`).
+5. `explain --unit` con la evidencia en vivo, como en la pantalla 02.
+6. Validar los parámetros de cada check al cargar las reglas, no solo al evaluarlas.
+7. Medir el costo por evento de eBPF en una máquina física (namespace raíz).
+8. `smi-activity`: correlacionar los SMIs con picos de p99, como en la pantalla 12.
+9. Probar `smi-activity` en una máquina física Intel.

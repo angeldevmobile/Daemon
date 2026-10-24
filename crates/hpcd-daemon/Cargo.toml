@@ -1,0 +1,27 @@
+[package]
+name = "hpcd-daemon"
+description = "hpcd: the privileged daemon that applies, leases and reverts fixes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[[bin]]
+name = "hpcd"
+path = "src/main.rs"
+
+[dependencies]
+hpcd-core.workspace = true
+hpcd-probe.workspace = true
+hpcd-rules.workspace = true
+hpcd-fix.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc.workspace = true
